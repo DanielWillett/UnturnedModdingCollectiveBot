@@ -55,12 +55,14 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddTransient<ISecretProvider, IdentitySecretProvider>();
 
 builder.Services.AddSingleton<DiscordClientLifetime>();
-builder.Services.AddSingleton<IHostedService, DiscordClientLifetime>(x => x.GetRequiredService<DiscordClientLifetime>());
+builder.Services.AddSingleton<VoteLifetimeManager>();
 builder.Services.AddTransient<PollFactory>();
 builder.Services.AddTransient<EmbedFactory>();
 
+builder.Services.AddSingleton<IHostedService, DiscordClientLifetime>(x => x.GetRequiredService<DiscordClientLifetime>());
+builder.Services.AddSingleton<IHostedService, VoteLifetimeManager>(x => x.GetRequiredService<VoteLifetimeManager>());
+
 /* COMMANDS */
-builder.Services.AddDiscordInteractionModule<ReviewCommand>();
 builder.Services.AddDiscordInteractionModule<SetupRoleSelectCommand>();
 builder.Services.AddDiscordInteractionModule<ApplicableRolesCommands>();
 

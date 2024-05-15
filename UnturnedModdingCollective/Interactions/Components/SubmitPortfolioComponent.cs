@@ -14,11 +14,13 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
     private readonly BotDbContext _dbContext;
     private readonly TimeProvider _timeProvider;
     private readonly PollFactory _pollFactory;
-    public SubmitPortfolioComponent(BotDbContext dbContext, TimeProvider timeProvider, PollFactory pollFactory)
+    private readonly VoteLifetimeManager _scheduler;
+    public SubmitPortfolioComponent(BotDbContext dbContext, TimeProvider timeProvider, PollFactory pollFactory, VoteLifetimeManager scheduler)
     {
         _dbContext = dbContext;
         _timeProvider = timeProvider;
         _pollFactory = pollFactory;
+        _scheduler = scheduler;
     }
 
     internal const string SubmitPortfolioButtonPrefix = "submit_portfolio_btn_";
@@ -75,36 +77,50 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
             ]);
         });
 
+        // todo proper config
+        const double voteTime = 7d;
+
         // update database
         request.UtcTimeSubmitted = _timeProvider.GetUtcNow().UtcDateTime;
+        request.UtcTimeVoteExpires = request.UtcTimeSubmitted.Value.AddDays(voteTime);
         request.UserName = Context.User.Username;
         request.GlobalName = Context.User.GlobalName ?? string.Empty;
 
-        _dbContext.Update(request);
-        await _dbContext.SaveChangesAsync();
-
-        await modifyThread;
-
-        // create question
-        StringBuilder question = new StringBuilder($"Should {(Context.User.GlobalName ?? Context.User.Username)} become a member?");
-        if (request.RequestedRoles.Count > 0)
+        try
         {
-            question.Append(" They are applying for: ");
+            await modifyThread;
 
-            ListUtility.AppendCommaList(question, request.RequestedRoles, link =>
+            // create question
+            StringBuilder question = new StringBuilder($"Should {(Context.User.GlobalName ?? Context.User.Username)} become a member?");
+            if (request.RequestedRoles.Count > 0)
             {
-                IRole? discordRole = Context.Guild.Roles.FirstOrDefault(r => r.Id == link.RoleId);
-                return discordRole?.Name ?? link.RoleId.ToString(CultureInfo.InvariantCulture);
-            });
+                question.Append(" They are applying for: ");
 
-            question.Append('.');
+                ListUtility.AppendCommaList(question, request.RequestedRoles, link =>
+                {
+                    IRole? discordRole = Context.Guild.Roles.FirstOrDefault(r => r.Id == link.RoleId);
+                    return discordRole?.Name ?? link.RoleId.ToString(CultureInfo.InvariantCulture);
+                });
+
+                question.Append('.');
+            }
+
+            // send the vote poll
+            IMessage poll = await thread.SendMessageAsync(poll: _pollFactory.CreateYesNoPoll(question.ToString(), TimeSpan.FromDays(voteTime)));
+
+            // update request so the vote expires just after the poll ends instead of just before
+            request.UtcTimeVoteExpires = _timeProvider.GetUtcNow().UtcDateTime.AddDays(voteTime);
+            request.PollMessageId = poll.Id;
+
+            await deferTask;
+            await Context.Interaction.DeleteOriginalResponseAsync();
         }
-
-        // send the vote poll
-        await thread.SendMessageAsync(poll: _pollFactory.CreateYesNoPoll(question.ToString(), TimeSpan.FromDays(7d)));
-
-        await deferTask;
-        await Context.Interaction.DeleteOriginalResponseAsync();
+        finally
+        {
+            _dbContext.Update(request);
+            await _dbContext.SaveChangesAsync();
+            _scheduler.StartVoteTimer(request);
+        }
     }
 
     private async Task<ReviewRequest?> ValidateButtonPress(bool isCancel)

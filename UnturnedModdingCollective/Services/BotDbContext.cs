@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using MySqlConnector;
 using UnturnedModdingCollective.API;
 using UnturnedModdingCollective.Models;
@@ -9,12 +10,14 @@ public class BotDbContext : DbContext
 {
     private readonly IConfiguration _configuration;
     private readonly ISecretProvider _secretProvider;
+    private readonly ILoggerFactory _loggerFactory;
     public DbSet<ReviewRequest> ReviewRequests => Set<ReviewRequest>();
     public DbSet<ApplicableRole> ApplicableRoles => Set<ApplicableRole>();
-    public BotDbContext(IConfiguration configuration, ISecretProvider secretProvider)
+    public BotDbContext(IConfiguration configuration, ISecretProvider secretProvider, ILoggerFactory loggerFactory)
     {
         _configuration = configuration;
         _secretProvider = secretProvider;
+        _loggerFactory = loggerFactory;
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -41,6 +44,7 @@ public class BotDbContext : DbContext
 
 #if DEBUG
         optionsBuilder.EnableSensitiveDataLogging(true);
+        optionsBuilder.UseLoggerFactory(_loggerFactory);
 #endif
 
         optionsBuilder.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString));

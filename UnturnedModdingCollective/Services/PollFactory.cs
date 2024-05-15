@@ -3,6 +3,8 @@
 namespace UnturnedModdingCollective.Services;
 public class PollFactory
 {
+    public const string PollYesText = "Yes";
+    public const string PollNoText = "No";
     public virtual PollProperties CreateYesNoPoll(string question, TimeSpan duration)
     {
         if (duration > TimeSpan.FromDays(7d))
@@ -24,12 +26,12 @@ public class PollFactory
                 new PollMediaProperties
                 {
                     Emoji = new Emoji("\U00002705"),
-                    Text = "Yes"
+                    Text = PollYesText
                 },
                 new PollMediaProperties
                 {
                     Emoji = new Emoji("\U0000274C"),
-                    Text = "No"
+                    Text = PollNoText
                 }
             ]
         };

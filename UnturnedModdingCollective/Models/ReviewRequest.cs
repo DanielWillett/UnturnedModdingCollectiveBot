@@ -16,6 +16,8 @@ public class ReviewRequest
     public ulong MessageId { get; set; }
     public ulong MessageChannelId { get; set; }
     public ulong ThreadId { get; set; }
+    public ulong? PollMessageId { get; set; }
+    public bool ClosedUnderError { get; set; } = false;
 
     [StringLength(32)]
     public string GlobalName { get; set; }
