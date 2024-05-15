@@ -1,4 +1,6 @@
-﻿using Discord;
+﻿using DanielWillett.ReflectionTools.IoC;
+using Discord;
+using Discord.Interactions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -6,6 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Serilog;
 using UnturnedModdingCollective.API;
 using UnturnedModdingCollective.Interactions.Commands;
+using UnturnedModdingCollective.Interactions.Commands.Admin;
 using UnturnedModdingCollective.Interactions.Components;
 using UnturnedModdingCollective.IoC;
 using UnturnedModdingCollective.Services;
@@ -18,7 +21,7 @@ builder.Environment.EnvironmentName = "Development";
 builder.Environment.EnvironmentName = "Production";
 #endif
 
-// add appsettings.Environment.json file to configuration in debug mode
+// add appsettings.Environment.json file to configuration
 builder.Configuration.AddJsonFile(Path.Combine(Environment.CurrentDirectory, $"appsettings.{builder.Environment.EnvironmentName}.json"), optional: true);
 
 
@@ -34,25 +37,36 @@ builder.Services.AddSerilog((_, configuration) => configuration
 builder.Services.AddDiscordWebSockets()
     .ConfigureClient(config =>
     {
-        config.GatewayIntents = GatewayIntents.GuildMessageReactions | GatewayIntents.MessageContent;
+        config.GatewayIntents = GatewayIntents.Guilds;
     })
     .WithInteractions(config =>
     {
+        config.DefaultRunMode = RunMode.Sync;
         config.UseCompiledLambda = true;
         config.AutoServiceScopes = true;
     });
 
+
 /* SERVICES */
+builder.Services.AddDbContext<BotDbContext>();
+builder.Services.AddReflectionTools();
+
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddTransient<ISecretProvider, IdentitySecretProvider>();
+
 builder.Services.AddSingleton<DiscordClientLifetime>();
 builder.Services.AddSingleton<IHostedService, DiscordClientLifetime>(x => x.GetRequiredService<DiscordClientLifetime>());
-builder.Services.AddDbContext<BotDbContext>();
+builder.Services.AddTransient<PollFactory>();
+builder.Services.AddTransient<EmbedFactory>();
 
 /* COMMANDS */
 builder.Services.AddDiscordInteractionModule<ReviewCommand>();
+builder.Services.AddDiscordInteractionModule<SetupRoleSelectCommand>();
+builder.Services.AddDiscordInteractionModule<ApplicableRolesCommands>();
 
 /* COMPONENTS */
 builder.Services.AddDiscordInteractionModule<SubmitPortfolioComponent>();
+builder.Services.AddDiscordInteractionModule<StartPortfolioComponent>();
 
 try
 {

@@ -10,10 +10,19 @@ public class BotDbContext : DbContext
     private readonly IConfiguration _configuration;
     private readonly ISecretProvider _secretProvider;
     public DbSet<ReviewRequest> ReviewRequests => Set<ReviewRequest>();
+    public DbSet<ApplicableRole> ApplicableRoles => Set<ApplicableRole>();
     public BotDbContext(IConfiguration configuration, ISecretProvider secretProvider)
     {
         _configuration = configuration;
         _secretProvider = secretProvider;
+    }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ReviewRequest>()
+            .HasMany(x => x.RequestedRoles)
+            .WithOne(x => x.Request)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)

@@ -1,7 +1,7 @@
 ﻿namespace UnturnedModdingCollective.API;
 
 /// <summary>
-/// Allows swapping out for something like azure secret value, etc in the future.
+/// Allows swapping out for something like azure secret vault, etc in the future.
 /// </summary>
 public interface ISecretProvider
 {

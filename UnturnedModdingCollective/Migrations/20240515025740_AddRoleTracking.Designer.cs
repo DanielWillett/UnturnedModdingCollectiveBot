@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using UnturnedModdingCollective.Services;
 
@@ -11,9 +12,11 @@ using UnturnedModdingCollective.Services;
 namespace UnturnedModdingCollective.Migrations
 {
     [DbContext(typeof(BotDbContext))]
-    partial class BotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20240515025740_AddRoleTracking")]
+    partial class AddRoleTracking
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -67,9 +70,6 @@ namespace UnturnedModdingCollective.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("varchar(32)");
 
-                    b.Property<ulong>("MessageChannelId")
-                        .HasColumnType("bigint unsigned");
-
                     b.Property<ulong>("MessageId")
                         .HasColumnType("bigint unsigned");
 
@@ -89,9 +89,6 @@ namespace UnturnedModdingCollective.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("varchar(32)");
 
-                    b.Property<DateTime?>("UtcTimeCancelled")
-                        .HasColumnType("datetime(6)");
-
                     b.Property<DateTime?>("UtcTimeClosed")
                         .HasColumnType("datetime(6)");
 
@@ -99,9 +96,6 @@ namespace UnturnedModdingCollective.Migrations
                         .HasColumnType("datetime(6)");
 
                     b.Property<DateTime?>("UtcTimeSubmitted")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<DateTime?>("UtcTimeVoteExpires")
                         .HasColumnType("datetime(6)");
 
                     b.HasKey("Id");

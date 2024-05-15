@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using UnturnedModdingCollective.Services;
 
@@ -11,9 +12,11 @@ using UnturnedModdingCollective.Services;
 namespace UnturnedModdingCollective.Migrations
 {
     [DbContext(typeof(BotDbContext))]
-    partial class BotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20240514232457_AddApplicableRole")]
+    partial class AddApplicableRole
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -67,9 +70,6 @@ namespace UnturnedModdingCollective.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("varchar(32)");
 
-                    b.Property<ulong>("MessageChannelId")
-                        .HasColumnType("bigint unsigned");
-
                     b.Property<ulong>("MessageId")
                         .HasColumnType("bigint unsigned");
 
@@ -89,9 +89,6 @@ namespace UnturnedModdingCollective.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("varchar(32)");
 
-                    b.Property<DateTime?>("UtcTimeCancelled")
-                        .HasColumnType("datetime(6)");
-
                     b.Property<DateTime?>("UtcTimeClosed")
                         .HasColumnType("datetime(6)");
 
@@ -101,42 +98,9 @@ namespace UnturnedModdingCollective.Migrations
                     b.Property<DateTime?>("UtcTimeSubmitted")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<DateTime?>("UtcTimeVoteExpires")
-                        .HasColumnType("datetime(6)");
-
                     b.HasKey("Id");
 
                     b.ToTable("review_requests");
-                });
-
-            modelBuilder.Entity("UnturnedModdingCollective.Models.ReviewRequestRoleLink", b =>
-                {
-                    b.Property<int>("RequestId")
-                        .HasColumnType("int")
-                        .HasColumnName("Request");
-
-                    b.Property<ulong>("RoleId")
-                        .HasColumnType("bigint unsigned");
-
-                    b.HasKey("RequestId", "RoleId");
-
-                    b.ToTable("review_request_roles");
-                });
-
-            modelBuilder.Entity("UnturnedModdingCollective.Models.ReviewRequestRoleLink", b =>
-                {
-                    b.HasOne("UnturnedModdingCollective.Models.ReviewRequest", "Request")
-                        .WithMany("RequestedRoles")
-                        .HasForeignKey("RequestId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Request");
-                });
-
-            modelBuilder.Entity("UnturnedModdingCollective.Models.ReviewRequest", b =>
-                {
-                    b.Navigation("RequestedRoles");
                 });
 #pragma warning restore 612, 618
         }

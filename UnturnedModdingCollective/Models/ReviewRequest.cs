@@ -5,7 +5,7 @@ namespace UnturnedModdingCollective.Models;
 
 #nullable disable
 
-[Table("ReviewRequests")]
+[Table("review_requests")]
 public class ReviewRequest
 {
     [Key]
@@ -14,6 +14,7 @@ public class ReviewRequest
     public ulong UserId { get; set; }
     public ulong Steam64 { get; set; }
     public ulong MessageId { get; set; }
+    public ulong MessageChannelId { get; set; }
     public ulong ThreadId { get; set; }
 
     [StringLength(32)]
@@ -23,7 +24,9 @@ public class ReviewRequest
     public string UserName { get; set; }
 
     public DateTime UtcTimeStarted { get; set; }
+    public DateTime? UtcTimeCancelled { get; set; }
     public DateTime? UtcTimeSubmitted { get; set; }
+    public DateTime? UtcTimeVoteExpires { get; set; }
     public DateTime? UtcTimeClosed { get; set; }
     public bool? Accepted { get; set; }
 
@@ -31,4 +34,7 @@ public class ReviewRequest
     /// Not null if another review can be requested, which was approved by whatever user's ID is in this field.
     /// </summary>
     public ulong? ResubmitApprover { get; set; }
+
+
+    public IList<ReviewRequestRoleLink> RequestedRoles { get; set; } = new List<ReviewRequestRoleLink>(0);
 }

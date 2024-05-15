@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Reflection;
 using UnturnedModdingCollective.API;
 
 namespace UnturnedModdingCollective.Services;
@@ -21,13 +22,8 @@ public class DiscordClientLifetime : IHostedService
 
     private readonly bool _hasAnyInteractions;
 
-    /// <summary>
-    /// Increment this value when interactions need updated.
-    /// </summary>
-    private const int CurrentInteractionVersion = 3;
-
     private string _interactionVersionFilePath = null!;
-    private int _lastUpdatedInteractionVersion;
+    private Version? _lastUpdatedInteractionVersion;
     private ulong _lastUpdatedInteractionGuildId;
     public DiscordClientLifetime(IServiceProvider serviceProvider)
     {
@@ -78,7 +74,6 @@ public class DiscordClientLifetime : IHostedService
         if (_hasAnyInteractions)
             _discordClient.InteractionCreated -= HandleInteractionReceived;
     }
-
     private async Task HandleInteractionReceived(SocketInteraction interaction)
     {
         Type contextType = typeof(SocketInteractionContext<>).MakeGenericType(interaction.GetType());
@@ -143,7 +138,9 @@ public class DiscordClientLifetime : IHostedService
     {
         ulong discordGuildId = _discordClient.Guilds.First().Id;
 
-        if (_lastUpdatedInteractionVersion == CurrentInteractionVersion && _lastUpdatedInteractionGuildId == discordGuildId)
+        Version currentVersion = Assembly.GetExecutingAssembly().GetName().Version!;
+
+        if (_lastUpdatedInteractionVersion == currentVersion && _lastUpdatedInteractionGuildId == discordGuildId)
         {
             _logger.LogInformation("Skipping interaction syncing, already up to date.");
             return;
@@ -159,7 +156,7 @@ public class DiscordClientLifetime : IHostedService
             _logger.LogDebug($"Registered slash command: {command.Name} ({command.Type}).");
         }
 
-        _lastUpdatedInteractionVersion = CurrentInteractionVersion;
+        _lastUpdatedInteractionVersion = currentVersion;
         _lastUpdatedInteractionGuildId = discordGuildId;
 
         UpdateInteractionFile(_lastUpdatedInteractionVersion, _lastUpdatedInteractionGuildId);
@@ -174,26 +171,33 @@ public class DiscordClientLifetime : IHostedService
 
         if (!File.Exists(_interactionVersionFilePath))
         {
-            _lastUpdatedInteractionVersion = 0;
+            _lastUpdatedInteractionVersion = new Version(0, 0, 0, 0);
             return;
         }
 
         try
         {
             byte[] data = File.ReadAllBytes(_interactionVersionFilePath);
-            if (data.Length < sizeof(uint) + sizeof(ulong))
+            if (data.Length < sizeof(int) * 4 + sizeof(ulong))
             {
-                _lastUpdatedInteractionVersion = 0;
+                _lastUpdatedInteractionVersion = new Version(0, 0, 0, 0);
                 _logger.LogWarning($"Corrupted interaction version file at \"{_interactionVersionFilePath}\".");
                 return;
             }
 
-            _lastUpdatedInteractionVersion = BitConverter.ToInt32(data);
-            _lastUpdatedInteractionGuildId = BitConverter.ToUInt64(data, sizeof(int));
+            Version v = new Version(
+                BitConverter.ToInt32(data, 0),
+                BitConverter.ToInt32(data, 4),
+                BitConverter.ToInt32(data, 8),
+                BitConverter.ToInt32(data, 12)
+            );
+
+            _lastUpdatedInteractionVersion = v;
+            _lastUpdatedInteractionGuildId = BitConverter.ToUInt64(data, 16);
         }
         catch (Exception ex)
         {
-            _lastUpdatedInteractionVersion = 0;
+            _lastUpdatedInteractionVersion = new Version(0, 0, 0, 0);
             _logger.LogWarning(ex, "Unable to read last interaction version.");
         }
     }
@@ -201,13 +205,18 @@ public class DiscordClientLifetime : IHostedService
     /// <summary>
     /// Writes the last interaction version and guild Id to a file so we can only update interactions when they actually change.
     /// </summary>
-    private void UpdateInteractionFile(int version, ulong guildId)
+    private void UpdateInteractionFile(Version version, ulong guildId)
     {
         try
         {
-            byte[] newData = new byte[sizeof(int) + sizeof(ulong)];
-            BitConverter.TryWriteBytes(newData, version);
-            BitConverter.TryWriteBytes(newData.AsSpan(4), guildId);
+            byte[] newData = new byte[sizeof(int) * 4 + sizeof(ulong)];
+
+            BitConverter.TryWriteBytes(newData, version.Major);
+            BitConverter.TryWriteBytes(newData.AsSpan(4), version.Minor);
+            BitConverter.TryWriteBytes(newData.AsSpan(8), version.Build);
+            BitConverter.TryWriteBytes(newData.AsSpan(12), version.Revision);
+
+            BitConverter.TryWriteBytes(newData.AsSpan(16), guildId);
 
             string? dir = Path.GetDirectoryName(_interactionVersionFilePath);
 
