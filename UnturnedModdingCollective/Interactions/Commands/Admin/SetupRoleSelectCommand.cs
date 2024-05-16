@@ -13,6 +13,7 @@ public class SetupRoleSelectCommand : InteractionModuleBase<SocketInteractionCon
     }
 
     [SlashCommand("setup-role-select", "Sets up the role selection message.")]
+    [CommandContextType(InteractionContextType.Guild)]
     public async Task SetupRoleSelect()
     {
         IGuildUser user = (IGuildUser)Context.User;

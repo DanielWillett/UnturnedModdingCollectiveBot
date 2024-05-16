@@ -7,7 +7,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using UnturnedModdingCollective.API;
-using UnturnedModdingCollective.Interactions.Commands;
 using UnturnedModdingCollective.Interactions.Commands.Admin;
 using UnturnedModdingCollective.Interactions.Components;
 using UnturnedModdingCollective.IoC;
@@ -29,8 +28,6 @@ builder.Configuration.AddJsonFile(Path.Combine(Environment.CurrentDirectory, $"a
 builder.Services.AddSerilog((_, configuration) => configuration
         .ReadFrom.Configuration(builder.Configuration)
         .Enrich.FromLogContext()
-        .WriteTo.Console()
-        .MinimumLevel.Debug()
     );
 
 /* DISCORD SETUP */
@@ -46,29 +43,35 @@ builder.Services.AddDiscordWebSockets()
         config.AutoServiceScopes = true;
     });
 
-
 /* SERVICES */
-builder.Services.AddDbContext<BotDbContext>();
 builder.Services.AddReflectionTools();
+builder.Services.AddDbContext<BotDbContext>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddTransient<ISecretProvider, IdentitySecretProvider>();
 
-builder.Services.AddSingleton<DiscordClientLifetime>();
-builder.Services.AddSingleton<VoteLifetimeManager>();
 builder.Services.AddTransient<PollFactory>();
 builder.Services.AddTransient<EmbedFactory>();
+builder.Services.AddTransient<EmoteService>();
+builder.Services.AddSingleton<VoteLifetimeManager>();
+builder.Services.AddSingleton<DiscordClientLifetime>();
+builder.Services.AddSingleton<IPersistingRoleService>(x => x.GetRequiredService<PersistingRolesService>());
 
-builder.Services.AddSingleton<IHostedService, DiscordClientLifetime>(x => x.GetRequiredService<DiscordClientLifetime>());
 builder.Services.AddSingleton<IHostedService, VoteLifetimeManager>(x => x.GetRequiredService<VoteLifetimeManager>());
+builder.Services.AddSingleton<IHostedService, DiscordClientLifetime>(x => x.GetRequiredService<DiscordClientLifetime>());
+builder.Services.AddTransient<IHostedService, PersistingRolesService>(x => x.GetRequiredService<PersistingRolesService>());
+
+builder.Services.AddSingleton<PersistingRolesService>();
 
 /* COMMANDS */
+builder.Services.AddDiscordInteractionModule<RolePersistCommand>();
 builder.Services.AddDiscordInteractionModule<SetupRoleSelectCommand>();
+builder.Services.AddDiscordInteractionModule<VoteManagementCommands>();
 builder.Services.AddDiscordInteractionModule<ApplicableRolesCommands>();
 
 /* COMPONENTS */
-builder.Services.AddDiscordInteractionModule<SubmitPortfolioComponent>();
 builder.Services.AddDiscordInteractionModule<StartPortfolioComponent>();
+builder.Services.AddDiscordInteractionModule<SubmitPortfolioComponent>();
 
 try
 {

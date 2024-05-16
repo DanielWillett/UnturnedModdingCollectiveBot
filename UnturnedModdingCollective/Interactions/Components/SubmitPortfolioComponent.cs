@@ -3,10 +3,8 @@ using Discord.Interactions;
 using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
-using System.Text;
 using UnturnedModdingCollective.Models;
 using UnturnedModdingCollective.Services;
-using UnturnedModdingCollective.Util;
 
 namespace UnturnedModdingCollective.Interactions.Components;
 public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionContext<SocketMessageComponent>>
@@ -78,11 +76,11 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
         });
 
         // todo proper config
-        const double voteTime = 7d;
+        TimeSpan voteTime = TimeSpan.FromHours(1d);
 
         // update database
         request.UtcTimeSubmitted = _timeProvider.GetUtcNow().UtcDateTime;
-        request.UtcTimeVoteExpires = request.UtcTimeSubmitted.Value.AddDays(voteTime);
+        request.UtcTimeVoteExpires = request.UtcTimeSubmitted.Value.Add(voteTime);
         request.UserName = Context.User.Username;
         request.GlobalName = Context.User.GlobalName ?? string.Empty;
 
@@ -90,27 +88,22 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
         {
             await modifyThread;
 
-            // create question
-            StringBuilder question = new StringBuilder($"Should {(Context.User.GlobalName ?? Context.User.Username)} become a member?");
-            if (request.RequestedRoles.Count > 0)
+            // send the vote polls
+            await Parallel.ForEachAsync(request.RequestedRoles, async (link, _) =>
             {
-                question.Append(" They are applying for: ");
+                IRole? discordRole = Context.Guild.Roles.FirstOrDefault(r => r.Id == link.RoleId);
 
-                ListUtility.AppendCommaList(question, request.RequestedRoles, link =>
-                {
-                    IRole? discordRole = Context.Guild.Roles.FirstOrDefault(r => r.Id == link.RoleId);
-                    return discordRole?.Name ?? link.RoleId.ToString(CultureInfo.InvariantCulture);
-                });
+                string question = $"Should {Context.User.GlobalName ?? Context.User.Username} receive the role {discordRole?.Name ?? link.RoleId.ToString(CultureInfo.InvariantCulture)}?";
+                IMessage poll = await thread.SendMessageAsync(poll: _pollFactory.CreateYesNoPoll(question, voteTime));
 
-                question.Append('.');
-            }
+                link.PollMessageId = poll.Id;
+            });
 
-            // send the vote poll
-            IMessage poll = await thread.SendMessageAsync(poll: _pollFactory.CreateYesNoPoll(question.ToString(), TimeSpan.FromDays(voteTime)));
+            foreach (ReviewRequestRole link in request.RequestedRoles)
+                _dbContext.Update(link);
 
             // update request so the vote expires just after the poll ends instead of just before
-            request.UtcTimeVoteExpires = _timeProvider.GetUtcNow().UtcDateTime.AddDays(voteTime);
-            request.PollMessageId = poll.Id;
+            request.UtcTimeVoteExpires = _timeProvider.GetUtcNow().UtcDateTime.Add(voteTime);
 
             await deferTask;
             await Context.Interaction.DeleteOriginalResponseAsync();
@@ -118,8 +111,9 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
         finally
         {
             _dbContext.Update(request);
-            await _dbContext.SaveChangesAsync();
+            Task saveTask = _dbContext.SaveChangesAsync();
             _scheduler.StartVoteTimer(request);
+            await saveTask;
         }
     }
 

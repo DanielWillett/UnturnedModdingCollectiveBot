@@ -41,6 +41,9 @@ namespace UnturnedModdingCollective.Migrations
                     b.Property<ulong>("GuildId")
                         .HasColumnType("bigint unsigned");
 
+                    b.Property<int>("NetVotesRequired")
+                        .HasColumnType("int");
+
                     b.Property<ulong>("RoleId")
                         .HasColumnType("bigint unsigned");
 
@@ -60,7 +63,7 @@ namespace UnturnedModdingCollective.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<bool?>("Accepted")
+                    b.Property<bool>("ClosedUnderError")
                         .HasColumnType("tinyint(1)");
 
                     b.Property<string>("GlobalName")
@@ -75,6 +78,12 @@ namespace UnturnedModdingCollective.Migrations
 
                     b.Property<ulong?>("ResubmitApprover")
                         .HasColumnType("bigint unsigned");
+
+                    b.Property<int?>("RolesAccepted")
+                        .HasColumnType("int");
+
+                    b.Property<int>("RolesAppliedFor")
+                        .HasColumnType("int");
 
                     b.Property<ulong>("Steam64")
                         .HasColumnType("bigint unsigned");
@@ -109,7 +118,7 @@ namespace UnturnedModdingCollective.Migrations
                     b.ToTable("review_requests");
                 });
 
-            modelBuilder.Entity("UnturnedModdingCollective.Models.ReviewRequestRoleLink", b =>
+            modelBuilder.Entity("UnturnedModdingCollective.Models.ReviewRequestRole", b =>
                 {
                     b.Property<int>("RequestId")
                         .HasColumnType("int")
@@ -118,12 +127,52 @@ namespace UnturnedModdingCollective.Migrations
                     b.Property<ulong>("RoleId")
                         .HasColumnType("bigint unsigned");
 
+                    b.Property<bool?>("Accepted")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<bool>("ClosedUnderError")
+                        .HasColumnType("tinyint(1)");
+
+                    b.Property<ulong?>("PollMessageId")
+                        .HasColumnType("bigint unsigned");
+
                     b.HasKey("RequestId", "RoleId");
 
                     b.ToTable("review_request_roles");
                 });
 
-            modelBuilder.Entity("UnturnedModdingCollective.Models.ReviewRequestRoleLink", b =>
+            modelBuilder.Entity("UnturnedModdingCollective.Models.ReviewRequestVote", b =>
+                {
+                    b.Property<int>("RequestId")
+                        .HasColumnType("int")
+                        .HasColumnName("Request");
+
+                    b.Property<ulong>("RoleId")
+                        .HasColumnType("bigint unsigned");
+
+                    b.Property<int>("VoteIndex")
+                        .HasColumnType("int");
+
+                    b.Property<string>("GlobalName")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<ulong>("UserId")
+                        .HasColumnType("bigint unsigned");
+
+                    b.Property<string>("UserName")
+                        .HasMaxLength(32)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<bool>("Vote")
+                        .HasColumnType("tinyint(1)");
+
+                    b.HasKey("RequestId", "RoleId", "VoteIndex");
+
+                    b.ToTable("review_request_votes");
+                });
+
+            modelBuilder.Entity("UnturnedModdingCollective.Models.ReviewRequestRole", b =>
                 {
                     b.HasOne("UnturnedModdingCollective.Models.ReviewRequest", "Request")
                         .WithMany("RequestedRoles")
@@ -134,9 +183,33 @@ namespace UnturnedModdingCollective.Migrations
                     b.Navigation("Request");
                 });
 
+            modelBuilder.Entity("UnturnedModdingCollective.Models.ReviewRequestVote", b =>
+                {
+                    b.HasOne("UnturnedModdingCollective.Models.ReviewRequest", "Request")
+                        .WithMany()
+                        .HasForeignKey("RequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("UnturnedModdingCollective.Models.ReviewRequestRole", "Role")
+                        .WithMany("Votes")
+                        .HasForeignKey("RequestId", "RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Request");
+
+                    b.Navigation("Role");
+                });
+
             modelBuilder.Entity("UnturnedModdingCollective.Models.ReviewRequest", b =>
                 {
                     b.Navigation("RequestedRoles");
+                });
+
+            modelBuilder.Entity("UnturnedModdingCollective.Models.ReviewRequestRole", b =>
+                {
+                    b.Navigation("Votes");
                 });
 #pragma warning restore 612, 618
         }

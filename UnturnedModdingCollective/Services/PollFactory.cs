@@ -5,7 +5,7 @@ public class PollFactory
 {
     public const string PollYesText = "Yes";
     public const string PollNoText = "No";
-    public virtual PollProperties CreateYesNoPoll(string question, TimeSpan duration)
+    public virtual PollProperties CreateYesNoPoll(string question, TimeSpan duration, IEmote? yesEmoji = null, IEmote? noEmoji = null)
     {
         if (duration > TimeSpan.FromDays(7d))
             throw new ArgumentOutOfRangeException(nameof(duration), "Duration must be less than or equal to 7 days.");
@@ -25,7 +25,7 @@ public class PollFactory
             [
                 new PollMediaProperties
                 {
-                    Emoji = new Emoji("\U00002705"),
+                    Emoji = yesEmoji ?? new Emoji("\U00002705"),
                     Text = PollYesText
                 },
                 new PollMediaProperties

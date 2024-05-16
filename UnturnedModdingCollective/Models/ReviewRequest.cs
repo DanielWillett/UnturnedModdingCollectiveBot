@@ -16,7 +16,6 @@ public class ReviewRequest
     public ulong MessageId { get; set; }
     public ulong MessageChannelId { get; set; }
     public ulong ThreadId { get; set; }
-    public ulong? PollMessageId { get; set; }
     public bool ClosedUnderError { get; set; } = false;
 
     [StringLength(32)]
@@ -30,7 +29,8 @@ public class ReviewRequest
     public DateTime? UtcTimeSubmitted { get; set; }
     public DateTime? UtcTimeVoteExpires { get; set; }
     public DateTime? UtcTimeClosed { get; set; }
-    public bool? Accepted { get; set; }
+    public int RolesAppliedFor { get; set; }
+    public int? RolesAccepted { get; set; }
 
     /// <summary>
     /// Not null if another review can be requested, which was approved by whatever user's ID is in this field.
@@ -38,5 +38,5 @@ public class ReviewRequest
     public ulong? ResubmitApprover { get; set; }
 
 
-    public IList<ReviewRequestRoleLink> RequestedRoles { get; set; } = new List<ReviewRequestRoleLink>(0);
+    public IList<ReviewRequestRole> RequestedRoles { get; set; } = new List<ReviewRequestRole>(0);
 }

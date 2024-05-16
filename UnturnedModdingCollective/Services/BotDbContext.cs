@@ -13,6 +13,7 @@ public class BotDbContext : DbContext
     private readonly ILoggerFactory _loggerFactory;
     public DbSet<ReviewRequest> ReviewRequests => Set<ReviewRequest>();
     public DbSet<ApplicableRole> ApplicableRoles => Set<ApplicableRole>();
+    public DbSet<PersistingRole> PersistingRoles => Set<PersistingRole>();
     public BotDbContext(IConfiguration configuration, ISecretProvider secretProvider, ILoggerFactory loggerFactory)
     {
         _configuration = configuration;
@@ -25,6 +26,13 @@ public class BotDbContext : DbContext
         modelBuilder.Entity<ReviewRequest>()
             .HasMany(x => x.RequestedRoles)
             .WithOne(x => x.Request)
+            .HasForeignKey(x => new { x.RequestId })
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ReviewRequestRole>()
+            .HasMany(x => x.Votes)
+            .WithOne(x => x.Role)
+            .HasForeignKey(x => new { x.RequestId, x.RoleId })
             .OnDelete(DeleteBehavior.Cascade);
     }
 

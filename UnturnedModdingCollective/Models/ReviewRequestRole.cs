@@ -6,7 +6,7 @@ namespace UnturnedModdingCollective.Models;
 
 [Table("review_request_roles")]
 [PrimaryKey(nameof(RequestId), nameof(RoleId))]
-public class ReviewRequestRoleLink
+public class ReviewRequestRole
 {
     /// <summary>
     /// Store the role ID instead of foreign key in case roles are added/removed.
@@ -20,4 +20,9 @@ public class ReviewRequestRoleLink
 
     [Required]
     public ReviewRequest? Request { get; set; }
+    public bool ClosedUnderError { get; set; } = false;
+    public ulong? PollMessageId { get; set; }
+    public bool? Accepted { get; set; }
+    public DateTime? UtcRoleApplied { get; set; }
+    public IList<ReviewRequestVote> Votes { get; set; } = new List<ReviewRequestVote>(0);
 }

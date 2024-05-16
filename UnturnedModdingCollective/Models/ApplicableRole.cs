@@ -20,4 +20,5 @@ public class ApplicableRole
 
     [StringLength(100 /* max length in API */)]
     public string Description { get; set; }
+    public int NetVotesRequired { get; set; }
 }

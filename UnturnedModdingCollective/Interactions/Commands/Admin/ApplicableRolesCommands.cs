@@ -1,4 +1,5 @@
 ﻿using Discord;
+using Discord.Commands;
 using Discord.Interactions;
 using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +8,9 @@ using UnturnedModdingCollective.Models;
 using UnturnedModdingCollective.Services;
 
 namespace UnturnedModdingCollective.Interactions.Commands.Admin;
+
+[Discord.Interactions.Group("applicable-role", "Manage which roles can be applied for.")]
+[CommandContextType(InteractionContextType.Guild)]
 public class ApplicableRolesCommands : InteractionModuleBase<SocketInteractionContext<SocketSlashCommand>>
 {
     private readonly BotDbContext _dbContext;
@@ -15,8 +19,8 @@ public class ApplicableRolesCommands : InteractionModuleBase<SocketInteractionCo
         _dbContext = dbContext;
     }
 
-    [SlashCommand("add-applicable-role", "Add a role to be able to be applied for.")]
-    public async Task AddApplicableRole(IRole role, string emoji, string description)
+    [SlashCommand("add", "Add a role to be able to be applied for.")]
+    public async Task AddApplicableRole(IRole role, string emoji, string description, [Name("net-votes-required")] string netVotesRequired = "1")
     {
         IGuildUser user = (IGuildUser)Context.User;
 
@@ -51,13 +55,26 @@ public class ApplicableRolesCommands : InteractionModuleBase<SocketInteractionCo
             return;
         }
 
+        if (!int.TryParse(netVotesRequired, NumberStyles.Number, CultureInfo.InvariantCulture, out int netVotesRequiredVal) || netVotesRequiredVal < 0)
+        {
+            await Context.Interaction.RespondAsync(embed: new EmbedBuilder()
+                    .WithColor(Color.Red)
+                    .WithTitle("Error")
+                    .WithDescription($"Out of range net votes: `{netVotesRequired}`. Must be an integer greater than or equal to 0.")
+                    .Build(),
+                ephemeral: true
+            );
+            return;
+        }
+
         ApplicableRole applicableRole = new ApplicableRole
         {
             RoleId = role.Id,
             Description = description,
             GuildId = role.Guild.Id,
             Emoji = emojiSave,
-            UserAddedBy = user.Id
+            UserAddedBy = user.Id,
+            NetVotesRequired = netVotesRequiredVal
         };
 
         _dbContext.ApplicableRoles.Add(applicableRole);
@@ -72,7 +89,7 @@ public class ApplicableRolesCommands : InteractionModuleBase<SocketInteractionCo
         );
     }
 
-    [SlashCommand("remove-applicable-role", "Remove a role that's able to be applied for.")]
+    [SlashCommand("remove", "Remove a role that's able to be applied for.")]
     public async Task RemoveApplicableRole(IRole role)
     {
         IGuildUser user = (IGuildUser)Context.User;

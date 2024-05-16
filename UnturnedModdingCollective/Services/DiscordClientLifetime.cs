@@ -1,4 +1,6 @@
-﻿using Discord;
+﻿using System.Collections.Concurrent;
+using System.Reflection;
+using Discord;
 using Discord.Interactions;
 using Discord.Rest;
 using Discord.WebSocket;
@@ -6,14 +8,16 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Reflection;
 using UnturnedModdingCollective.API;
 
 namespace UnturnedModdingCollective.Services;
 public class DiscordClientLifetime : IHostedService
 {
+    private readonly ConcurrentDictionary<string, ILogger> _discordLoggers = new ConcurrentDictionary<string, ILogger>();
+
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<DiscordSocketClient> _logger;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly IConfiguration _configuration;
     private readonly ISecretProvider _secretProvider;
 
@@ -34,7 +38,8 @@ public class DiscordClientLifetime : IHostedService
 
         _hasAnyInteractions = serviceProvider.GetServices<IInteractionModuleBase>().Any();
 
-        _logger = serviceProvider.GetRequiredService<ILogger<DiscordSocketClient>>();
+        _loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+        _logger = _loggerFactory.CreateLogger<DiscordSocketClient>();
         _configuration = serviceProvider.GetRequiredService<IConfiguration>();
         _secretProvider = serviceProvider.GetRequiredService<ISecretProvider>();
 
@@ -103,21 +108,22 @@ public class DiscordClientLifetime : IHostedService
 
     private Task HandleLog(LogMessage arg)
     {
+        ILogger logger = _discordLoggers.GetOrAdd("Discord " + arg.Source, _loggerFactory.CreateLogger);
         switch (arg.Severity)
         {
             case LogSeverity.Debug:
             case LogSeverity.Verbose:
-                _logger.LogDebug(arg.Exception, arg.Source + " | " + arg.Message);
+                logger.LogDebug(arg.Exception, arg.Message);
                 break;
             case LogSeverity.Error:
             case LogSeverity.Critical:
-                _logger.LogError(arg.Exception, arg.Source + " | " + arg.Message);
+                logger.LogError(arg.Exception, arg.Message);
                 break;
             case LogSeverity.Warning:
-                _logger.LogWarning(arg.Exception, arg.Source + " | " + arg.Message);
+                logger.LogWarning(arg.Exception, arg.Message);
                 break;
             default:
-                _logger.LogInformation(arg.Exception, arg.Source + " | " + arg.Message);
+                logger.LogInformation(arg.Exception, arg.Message);
                 break;
         }
 
@@ -131,9 +137,10 @@ public class DiscordClientLifetime : IHostedService
 
         await TrySyncInteractions();
 
-        _logger.LogDebug($"Discord bot ready: {_discordClient.CurrentUser.Username}#{_discordClient.CurrentUser.DiscriminatorValue}.");
+        IUser currentUser = _discordClient.CurrentUser;
+        _logger.LogDebug("Discord bot ready: {0}#{1}.", currentUser.Username, currentUser.DiscriminatorValue);
     }
-
+    
     private async Task TrySyncInteractions()
     {
         ulong discordGuildId = _discordClient.Guilds.First().Id;
@@ -153,7 +160,7 @@ public class DiscordClientLifetime : IHostedService
         }
         else foreach (RestGuildCommand command in commandsRegistered)
         {
-            _logger.LogDebug($"Registered slash command: {command.Name} ({command.Type}).");
+            _logger.LogDebug("Registered slash command: {0} ({1}).", command.Name, command.Type);
         }
 
         _lastUpdatedInteractionVersion = currentVersion;
@@ -181,7 +188,7 @@ public class DiscordClientLifetime : IHostedService
             if (data.Length < sizeof(int) * 4 + sizeof(ulong))
             {
                 _lastUpdatedInteractionVersion = new Version(0, 0, 0, 0);
-                _logger.LogWarning($"Corrupted interaction version file at \"{_interactionVersionFilePath}\".");
+                _logger.LogWarning("Corrupted interaction version file at \"{0}\".", _interactionVersionFilePath);
                 return;
             }
 

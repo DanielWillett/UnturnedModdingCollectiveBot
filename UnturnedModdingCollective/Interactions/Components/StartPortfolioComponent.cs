@@ -45,7 +45,7 @@ public class StartPortfolioComponent : InteractionModuleBase<SocketInteractionCo
         allowedRoles.RemoveAll(role => user.RoleIds.Contains(role.RoleId));
 
         // remove all roles the user has applied for in the past
-        List<ReviewRequestRoleLink> pastApplications = await _dbContext.Set<ReviewRequestRoleLink>()
+        List<ReviewRequestRole> pastApplications = await _dbContext.Set<ReviewRequestRole>()
             .Where(x => x.Request!.UserId == user.Id && !x.Request!.ResubmitApprover.HasValue && !x.Request.UtcTimeCancelled.HasValue)
             .ToListAsync();
 
@@ -114,17 +114,18 @@ public class StartPortfolioComponent : InteractionModuleBase<SocketInteractionCo
         {
             UserId = user.Id,
             Steam64 = 0,
-            GlobalName = user.GlobalName,
+            GlobalName = user.GlobalName ?? user.Username,
             UserName = user.Username,
             ThreadId = thread.Id,
             MessageId = message.Id,
             MessageChannelId = message.Channel.Id,
-            UtcTimeStarted = _timeProvider.GetUtcNow().UtcDateTime
+            UtcTimeStarted = _timeProvider.GetUtcNow().UtcDateTime,
+            RolesAppliedFor = allowedRoles.Count
         };
 
         foreach (ApplicableRole role in allowedRoles)
         {
-            request.RequestedRoles.Add(new ReviewRequestRoleLink
+            request.RequestedRoles.Add(new ReviewRequestRole
             {
                 Request = request,
                 RoleId = role.RoleId

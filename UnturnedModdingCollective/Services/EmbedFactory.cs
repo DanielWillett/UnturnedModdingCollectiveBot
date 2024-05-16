@@ -1,8 +1,8 @@
-﻿using Discord;
+﻿using System.Globalization;
+using Discord;
 using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using System.Globalization;
 using UnturnedModdingCollective.Interactions.Components;
 using UnturnedModdingCollective.Models;
 
@@ -40,7 +40,7 @@ public class EmbedFactory
             IRole? discordRole = guild.Roles.FirstOrDefault(r => r.Id == role.RoleId);
             if (discordRole == null)
             {
-                _logger.LogWarning($"Applicable role missing: {role.RoleId}, {role.Description}. Removing from database.");
+                _logger.LogWarning("Applicable role missing: {0}, {1}. Removing from database.", role.RoleId, role.Description);
                 _dbContext.ApplicableRoles.Remove(role);
                 hadToRemoveAny = true;
                 continue;
