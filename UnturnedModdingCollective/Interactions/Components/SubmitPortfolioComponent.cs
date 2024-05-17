@@ -31,20 +31,13 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
         if (request == null)
             return;
 
+        IThreadChannel thread = (IThreadChannel)Context.Interaction.Message.Channel;
+        Task deleteThreadTask = thread.DeleteAsync();
+
         request.UtcTimeCancelled = _timeProvider.GetUtcNow().UtcDateTime;
 
         _dbContext.Update(request);
         await _dbContext.SaveChangesAsync();
-
-        IThreadChannel thread = (IThreadChannel)Context.Interaction.Message.Channel;
-        Task deleteThreadTask = thread.DeleteAsync();
-
-        IMessageChannel? channel = await Context.Client.GetChannelAsync(request.MessageChannelId) as IMessageChannel;
-        IMessage? message = channel == null ? null : await channel.GetMessageAsync(request.MessageId);
-        if (message != null)
-        {
-            await message.DeleteAsync();
-        }
 
         await deleteThreadTask;
     }
@@ -64,16 +57,17 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
         Task modifyThread = thread!.ModifyAsync(properties =>
         {
             properties.Locked = true;
-            properties.PermissionOverwrites = new Optional<IEnumerable<Overwrite>>(
-            [
-                new Overwrite(Context.User.Id, PermissionTarget.User, new OverwritePermissions(viewChannel: PermValue.Deny)),
-                new Overwrite(Context.Client.CurrentUser.Id, PermissionTarget.User, new OverwritePermissions(
-                    sendMessages  : PermValue.Allow,
-                    viewChannel   : PermValue.Allow,
-                    manageChannel : PermValue.Allow)
-                )
-            ]);
+            //properties.PermissionOverwrites = new Optional<IEnumerable<Overwrite>>(
+            //[
+            //    new Overwrite(Context.User.Id, PermissionTarget.User, new OverwritePermissions(viewChannel: PermValue.Deny)),
+            //    new Overwrite(Context.Client.CurrentUser.Id, PermissionTarget.User, new OverwritePermissions(
+            //        sendMessages  : PermValue.Allow,
+            //        viewChannel   : PermValue.Allow,
+            //        manageChannel : PermValue.Allow)
+            //    )
+            //]);
         });
+
 
         // todo proper config
         TimeSpan voteTime = TimeSpan.FromHours(1d);
@@ -86,6 +80,7 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
 
         try
         {
+            await thread.RemoveUserAsync((IGuildUser)Context.User);
             await modifyThread;
 
             // send the vote polls

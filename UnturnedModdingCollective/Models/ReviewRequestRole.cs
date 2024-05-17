@@ -23,6 +23,8 @@ public class ReviewRequestRole
     public bool ClosedUnderError { get; set; } = false;
     public ulong? PollMessageId { get; set; }
     public bool? Accepted { get; set; }
+    public int YesVotes { get; set; }
+    public int NoVotes { get; set; }
     public DateTime? UtcRoleApplied { get; set; }
     public IList<ReviewRequestVote> Votes { get; set; } = new List<ReviewRequestVote>(0);
 }

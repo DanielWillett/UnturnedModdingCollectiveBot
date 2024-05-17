@@ -20,7 +20,7 @@ public class SetupRoleSelectCommand : InteractionModuleBase<SocketInteractionCon
 
         if (user.Id != Context.Guild.OwnerId && !user.GuildPermissions.Has(GuildPermission.Administrator))
         {
-            await Context.Interaction.RespondAsync("No permissions.", ephemeral: true);
+            await Context.Interaction.RespondAsync(embed: _embedFactory.NoPermissionsEmbed(GuildPermission.Administrator).Build(), ephemeral: true);
             return;
         }
 

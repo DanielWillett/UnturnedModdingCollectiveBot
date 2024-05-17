@@ -2,7 +2,6 @@
 using Discord.Interactions;
 using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
-using Serilog;
 using System.Globalization;
 using UnturnedModdingCollective.Models;
 using UnturnedModdingCollective.Services;
@@ -14,17 +13,17 @@ public class StartPortfolioComponent : InteractionModuleBase<SocketInteractionCo
 
     private readonly BotDbContext _dbContext;
     private readonly TimeProvider _timeProvider;
-    private readonly EmbedFactory _embedFactory;
-    public StartPortfolioComponent(BotDbContext dbContext, TimeProvider timeProvider, EmbedFactory embedFactory)
+    public StartPortfolioComponent(BotDbContext dbContext, TimeProvider timeProvider)
     {
         _dbContext = dbContext;
         _timeProvider = timeProvider;
-        _embedFactory = embedFactory;
     }
 
     [ComponentInteraction(StartPortfolioMenu)]
     public async Task ReceiveStartPortfolio()
     {
+        await Context.Interaction.DeferAsync();
+
         IGuildUser user = (IGuildUser)Context.User;
 
         IReadOnlyCollection<string> selectedRoleIds = Context.Interaction.Data.Values;
@@ -72,30 +71,24 @@ public class StartPortfolioComponent : InteractionModuleBase<SocketInteractionCo
                 );
             }
 
-            await Context.Interaction.RespondAsync(ephemeral: true, embed: eb.Build());
+            await Context.Interaction.FollowupAsync(ephemeral: true, embed: eb.Build());
             return;
         }
 
         ITextChannel channel = (ITextChannel)await Context.Interaction.GetChannelAsync();
 
-        EmbedBuilder postEmbed = new EmbedBuilder()
-            .WithDescription("Please post your portfolio in the created thread and click **Submit** when you're done.")
-            .WithColor(Color.DarkerGrey)
-            .WithTitle("Member Review");
-
-        await Context.Interaction.RespondAsync(embed: postEmbed.Build());
-        IUserMessage message = await Context.Interaction.GetOriginalResponseAsync();
-
         string threadChannelName = Context.User.GlobalName + " Portfolio";
 
-        IThreadChannel thread = await channel.CreateThreadAsync(threadChannelName, ThreadType.PrivateThread, ThreadArchiveDuration.OneWeek, message);
+        IThreadChannel thread = await channel.CreateThreadAsync(threadChannelName, ThreadType.PrivateThread, ThreadArchiveDuration.OneWeek);
 
         Task addUserTask = thread.AddUserAsync(user);
 
-        // edit the thread mention into the original message
+        EmbedBuilder postEmbed = new EmbedBuilder()
+            .WithTitle("Member Review")
+            .WithDescription($"Please post your portfolio in {thread.Mention} and click **Submit** when you're done.")
+            .WithColor(Color.DarkerGrey);
 
-        postEmbed.Description = $"Please post your portfolio in {thread.Mention} and click **Submit** when you're done.";
-        Task modifyMessageTask = Context.Interaction.ModifyOriginalResponseAsync(msg => msg.Embeds = new Embed[] { postEmbed.Build() });
+        await Context.Interaction.FollowupAsync(embed: postEmbed.Build(), ephemeral: true);
 
         postEmbed.Description = "Please post your portfolio for the following roles and click **Submit** when you're done.";
         postEmbed.Color = Color.Green;
@@ -117,8 +110,6 @@ public class StartPortfolioComponent : InteractionModuleBase<SocketInteractionCo
             GlobalName = user.GlobalName ?? user.Username,
             UserName = user.Username,
             ThreadId = thread.Id,
-            MessageId = message.Id,
-            MessageChannelId = message.Channel.Id,
             UtcTimeStarted = _timeProvider.GetUtcNow().UtcDateTime,
             RolesAppliedFor = allowedRoles.Count
         };
@@ -143,36 +134,5 @@ public class StartPortfolioComponent : InteractionModuleBase<SocketInteractionCo
             .WithButton(ButtonBuilder.CreateDangerButton("Cancel", SubmitPortfolioComponent.CancelPortfolioButtonPrefix + userIdStr));
 
         await thread.SendMessageAsync(embed: postEmbed.Build(), components: components.Build());
-
-        await modifyMessageTask;
-
-        // move setup message back to the bottom of the channel
-
-        // don't block gateway
-        EmbedBuilder newMsgEmbed = new EmbedBuilder();
-        ComponentBuilder newMsgComponents = new ComponentBuilder();
-
-        IMessage srcMessage = Context.Interaction.Message;
-
-        // need to run this before task.run, otherwise the lifetime will end before this returns
-        await _embedFactory.BuildMembershipApplicationMessage(Context.Guild, newMsgEmbed, newMsgComponents);
-
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                Task sendNewMessageTask = srcMessage.Channel.SendMessageAsync(
-                    "_ _" /* leave a space */,
-                    embed: newMsgEmbed.Build(),
-                    components: newMsgComponents.Build()
-                );
-                await srcMessage.DeleteAsync();
-                await sendNewMessageTask;
-            }
-            catch (Exception ex)
-            {
-                Log.Logger.Error(ex, "Error moving source message.");
-            }
-        });
     }
 }

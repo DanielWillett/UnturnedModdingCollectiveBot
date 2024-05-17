@@ -12,9 +12,11 @@ public class PersistingRole
 
     public ulong UserId { get; set; }
     public DateTime? UtcRemoveAt { get; set; }
+    public bool ExpiryProcessed { get; set; }
     public ulong GuildId { get; set; }
     public ulong RoleId { get; set; }
     public ulong UserAddedBy { get; set; }
+    public DateTime UtcTimestamp { get; set; }
 
 
     public bool IsExpired(TimeProvider timeProvider) => UtcRemoveAt.HasValue && timeProvider.GetUtcNow().UtcDateTime >= UtcRemoveAt.Value;

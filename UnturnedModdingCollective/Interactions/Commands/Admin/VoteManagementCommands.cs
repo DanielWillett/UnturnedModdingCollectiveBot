@@ -14,11 +14,13 @@ public class VoteManagementCommands : InteractionModuleBase<SocketInteractionCon
     private readonly BotDbContext _dbContext;
     private readonly VoteLifetimeManager _votes;
     private readonly TimeProvider _timeProvider;
-    public VoteManagementCommands(BotDbContext dbContext, VoteLifetimeManager votes, TimeProvider timeProvider)
+    private readonly EmbedFactory _embedFactory;
+    public VoteManagementCommands(BotDbContext dbContext, VoteLifetimeManager votes, TimeProvider timeProvider, EmbedFactory embedFactory)
     {
         _dbContext = dbContext;
         _votes = votes;
         _timeProvider = timeProvider;
+        _embedFactory = embedFactory;
     }
     [SlashCommand("end-early", "End the vote now.")]
     public async Task EndVoteEarly()
@@ -27,7 +29,7 @@ public class VoteManagementCommands : InteractionModuleBase<SocketInteractionCon
 
         if (user.Id != Context.Guild.OwnerId && !user.GuildPermissions.Has(GuildPermission.Administrator))
         {
-            await Context.Interaction.RespondAsync("No permissions.", ephemeral: true);
+            await Context.Interaction.RespondAsync(embed: _embedFactory.NoPermissionsEmbed(GuildPermission.Administrator).Build(), ephemeral: true);
             return;
         }
 

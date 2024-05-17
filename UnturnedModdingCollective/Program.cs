@@ -10,6 +10,7 @@ using UnturnedModdingCollective.API;
 using UnturnedModdingCollective.Interactions.Commands.Admin;
 using UnturnedModdingCollective.Interactions.Components;
 using UnturnedModdingCollective.IoC;
+using UnturnedModdingCollective.Models.Config;
 using UnturnedModdingCollective.Services;
 
 HostApplicationBuilder builder = Host.CreateApplicationBuilder(args);
@@ -34,7 +35,7 @@ builder.Services.AddSerilog((_, configuration) => configuration
 builder.Services.AddDiscordWebSockets()
     .ConfigureClient(config =>
     {
-        config.GatewayIntents = GatewayIntents.Guilds;
+        config.GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMembers;
     })
     .WithInteractions(config =>
     {
@@ -49,6 +50,7 @@ builder.Services.AddDbContext<BotDbContext>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddTransient<ISecretProvider, IdentitySecretProvider>();
+builder.Services.AddTransient<ILiveConfiguration<LiveConfiguration>, JsonLiveConfiguration<LiveConfiguration>>();
 
 builder.Services.AddTransient<PollFactory>();
 builder.Services.AddTransient<EmbedFactory>();

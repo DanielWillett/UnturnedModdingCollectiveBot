@@ -13,8 +13,6 @@ public class ReviewRequest
     public int Id { get; set; }
     public ulong UserId { get; set; }
     public ulong Steam64 { get; set; }
-    public ulong MessageId { get; set; }
-    public ulong MessageChannelId { get; set; }
     public ulong ThreadId { get; set; }
     public bool ClosedUnderError { get; set; } = false;
 

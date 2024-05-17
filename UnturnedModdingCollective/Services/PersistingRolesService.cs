@@ -18,6 +18,8 @@ public class PersistingRolesService : IPersistingRoleService, IHostedService, ID
     private readonly TimeProvider _timeProvider;
     private readonly DiscordSocketClient _discordClient;
     private readonly SemaphoreSlim _dbContextGate = new SemaphoreSlim(1, 1);
+    private Timer? _currentTimer;
+    private DateTime _currentTimerComplete = DateTime.MaxValue;
     public PersistingRolesService(IServiceProvider serviceProvider)
     {
         _logger = serviceProvider.GetRequiredService<ILogger<PersistingRolesService>>();
@@ -49,21 +51,141 @@ public class PersistingRolesService : IPersistingRoleService, IHostedService, ID
         _dbContextScope.Dispose();
     }
 
-    public async Task CheckMemberRoles(IGuildUser user, CancellationToken token = default)
+    public Task CheckMemberRoles(IGuildUser user, CancellationToken token = default)
+        => CheckMemberRoles(user, 0, token);
+    private async Task CheckMemberRoles(IGuildUser user, ulong roleIdToRemove, CancellationToken token = default)
     {
         await _dbContextGate.WaitAsync(token);
         try
         {
             List<PersistingRole> allRoles = await _dbContext.PersistingRoles
-                .Where(role => role.GuildId == user.GuildId && role.UserId == user.Id)
+                .Where(role => (!role.ExpiryProcessed || !role.UtcRemoveAt.HasValue) && role.GuildId == user.GuildId && role.UserId == user.Id)
                 .ToListAsync(token);
 
-            await ApplyPersistingRoles(user, allRoles, token);
+            if (await ApplyPersistingRoles(user, allRoles, roleIdToRemove, token))
+                await _dbContext.SaveChangesAsync(token);
         }
         finally
         {
             _dbContextGate.Release();
         }
+    }
+    private async Task StartNextTimer(CancellationToken token = default)
+    {
+        DateTime now = _timeProvider.GetUtcNow().UtcDateTime;
+        
+        List<PersistingRole> allRolesToExpire = await _dbContext.PersistingRoles
+            .Where(x => !x.ExpiryProcessed && x.UtcRemoveAt.HasValue)
+            .OrderBy(x => x.UtcRemoveAt)
+            .ToListAsync(token);
+
+        if (allRolesToExpire.Count == 0)
+            return;
+
+        PersistingRole? toStartTimer = allRolesToExpire.SkipWhile(x => now > x.UtcRemoveAt!.Value).FirstOrDefault();
+        if (toStartTimer != null)
+        {
+            TimeSpan timeUntilStart = toStartTimer.UtcRemoveAt!.Value - now;
+
+            TimerState state = new TimerState
+            {
+                RoleId = toStartTimer.Id
+            };
+
+            _currentTimerComplete = _timeProvider.GetUtcNow().UtcDateTime.Add(timeUntilStart);
+            Timer timer = new Timer(TimerFinished, state, timeUntilStart, Timeout.InfiniteTimeSpan);
+            _logger.LogInformation("Started persisting role timer for {0} ending at {1}.", toStartTimer.Id, _currentTimerComplete.ToLocalTime());
+            state.Timer = timer;
+
+            Timer? oldTimer = Interlocked.Exchange(ref _currentTimer, timer);
+            if (oldTimer != null)
+            {
+                oldTimer.Change(Timeout.Infinite, Timeout.Infinite);
+                oldTimer.Dispose();
+            }
+        }
+
+        bool anySave = false;
+        foreach (PersistingRole roleToRemove in allRolesToExpire.Where(x => now > x.UtcRemoveAt!.Value))
+        {
+            roleToRemove.ExpiryProcessed = true;
+            anySave = true;
+            IGuild? guild = _discordClient.GetGuild(roleToRemove.GuildId);
+            if (guild == null)
+                continue;
+            
+            IGuildUser? user = await guild.GetUserAsync(roleToRemove.UserId);
+            if (user == null)
+                continue;
+
+            if (!user.RoleIds.Contains(roleToRemove.RoleId))
+                continue;
+
+            try
+            {
+                await user.RemoveRoleAsync(roleToRemove.RoleId);
+            }
+            catch (Exception ex)
+            {
+                roleToRemove.ExpiryProcessed = false;
+                _logger.LogError(ex, "Failed to remove role {0} from {1} ({2}).", roleToRemove.RoleId, user.Id, user.Username);
+            }
+        }
+
+        if (anySave)
+            await _dbContext.SaveChangesAsync(token);
+    }
+    private void TimerFinished(object? stateBox)
+    {
+        if (stateBox is not TimerState state)
+            return;
+
+        Interlocked.CompareExchange(ref _currentTimer, null, state.Timer);
+        Task.Run(async () =>
+        {
+            await state.Timer.DisposeAsync();
+            await _dbContextGate.WaitAsync();
+            PersistingRole? role = null;
+            try
+            {
+                if (_currentTimer == null)
+                    _currentTimerComplete = DateTime.MaxValue;
+
+                role = await _dbContext.PersistingRoles.FirstOrDefaultAsync(x => x.Id == state.RoleId);
+                
+                if (role is not { ExpiryProcessed: false } || !role.IsExpired(_timeProvider))
+                    return;
+
+                role.ExpiryProcessed = true;
+                _dbContext.Update(role);
+                await _dbContext.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to finish timer - failed to update expiry.");
+            }
+            finally
+            {
+                try
+                {
+                    await StartNextTimer();
+                }
+                finally
+                {
+                    _dbContextGate.Release();
+                }
+            }
+
+            try
+            {
+                if (role != null)
+                    await CheckMemberRoles(role.UserId, role.GuildId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to finish timer - failed to check member roles.");
+            }
+        });
     }
     private async Task OnReady()
     {
@@ -73,13 +195,14 @@ public class PersistingRolesService : IPersistingRoleService, IHostedService, ID
         {
             // check for players missing roles since the last startup
             List<PersistingRole> allRoles = await _dbContext.PersistingRoles
-                .Where(x => _discordClient.Guilds.Select(x => x.Id).Contains(x.GuildId))
+                .Where(x => _discordClient.Guilds.Select(x => x.Id).Contains(x.GuildId) && (!x.ExpiryProcessed || !x.UtcRemoveAt.HasValue))
                 .OrderBy(x => x.GuildId)
                 .ThenBy(x => x.UserId)
                 .ToListAsync();
 
             IGuild? guild = null;
             IGuildUser? user = null;
+            bool needsSave = false;
             for (int i = 0; i < allRoles.Count; ++i)
             {
                 PersistingRole thisRole = allRoles[i];
@@ -117,8 +240,13 @@ public class PersistingRolesService : IPersistingRoleService, IHostedService, ID
                     nextUserIndex = allRoles.Count;
 
                 rolesChecked += nextUserIndex - i;
-                await ApplyPersistingRoles(user, allRoles.Skip(i).Take(nextUserIndex - i));
+                needsSave |= await ApplyPersistingRoles(user, allRoles.Skip(i).Take(nextUserIndex - i), 0ul);
             }
+
+            if (needsSave)
+                await _dbContext.SaveChangesAsync();
+
+            await StartNextTimer();
         }
         finally
         {
@@ -127,41 +255,61 @@ public class PersistingRolesService : IPersistingRoleService, IHostedService, ID
 
         _logger.LogInformation("Checked {0} persisting roles for updates.", rolesChecked);
     }
-    private async Task ApplyPersistingRoles(IGuildUser user, IEnumerable<PersistingRole> persistingRoles, CancellationToken token = default)
+    private async Task<bool> ApplyPersistingRoles(IGuildUser user, IEnumerable<PersistingRole> persistingRoles, ulong roleIdToRemove, CancellationToken token = default)
     {
         IReadOnlyCollection<ulong> roles = user.RoleIds;
 
         List<ulong>? toRemove = null, toAdd = null;
 
+        bool needsSave = false;
         foreach (PersistingRole role in persistingRoles)
         {
             if (role.IsExpired(_timeProvider))
             {
                 if (roles.Contains(role.RoleId))
-                    (toRemove ??= []).Add(role.RoleId);
+                {
+                    toRemove ??= [ ];
+                    if (!toRemove.Contains(role.RoleId))
+                        toRemove.Add(role.RoleId);
+                    role.ExpiryProcessed = true;
+                    _dbContext.Update(role);
+                    needsSave = true;
+                    _logger.LogDebug("Removing present role {0} to {1} ({2}).", role.RoleId, user.Id, user.Username);
+                }
 
                 continue;
             }
 
-            if (!roles.Contains(role.RoleId))
-            {
-                (toAdd ??= []).Add(role.RoleId);
-            }
+            if (roles.Contains(role.RoleId))
+                continue;
+
+            toAdd ??= [ ];
+            if (!toAdd.Contains(role.RoleId))
+                toAdd.Add(role.RoleId);
+            _logger.LogDebug("Adding missing role {0} to {1} ({2}).", role.RoleId, user.Id, user.Username);
         }
+
+        if (roleIdToRemove != 0ul && roles.Contains(roleIdToRemove) && (toRemove == null || !toRemove.Contains(roleIdToRemove)))
+            (toRemove ??= [ ]).Add(roleIdToRemove);
+
 
         if (toRemove != null)
             await user.RemoveRolesAsync(toRemove, token == default ? null : new RequestOptions { CancelToken = token });
 
         if (toAdd != null)
             await user.AddRolesAsync(toAdd, token == default ? null : new RequestOptions { CancelToken = token });
+
+        return needsSave;
     }
-    public async Task CheckMemberRoles(ulong userId, ulong guildId, CancellationToken token = default)
+    public Task CheckMemberRoles(ulong userId, ulong guildId, CancellationToken token = default)
+        => CheckMemberRoles(userId, guildId, 0ul, token);
+    private async Task CheckMemberRoles(ulong userId, ulong guildId, ulong roleIdToRemove, CancellationToken token = default)
     {
         IGuild? guild = _discordClient.GetGuild(guildId);
         IGuildUser? user = guild == null ? null : await guild.GetUserAsync(userId, CacheMode.AllowDownload, new RequestOptions { CancelToken = token });
 
         if (user != null)
-            await CheckMemberRoles(user, token);
+            await CheckMemberRoles(user, roleIdToRemove, token);
     }
     private void InvokeUserUpdated(IGuildUser user)
     {
@@ -187,13 +335,14 @@ public class PersistingRolesService : IPersistingRoleService, IHostedService, ID
         InvokeUserUpdated(arg);
         return Task.CompletedTask;
     }
-    public async Task<IReadOnlyList<PersistingRole>> GetPersistingRoles(ulong user, ulong roleId, CancellationToken token = default)
+    public async Task<IReadOnlyList<PersistingRole>> GetPersistingRoles(ulong user, ulong guildId, ulong roleId, CancellationToken token = default)
     {
         await _dbContextGate.WaitAsync(token);
         try
         {
             return await _dbContext.PersistingRoles
-                .Where(role => role.UserId == user && role.RoleId == roleId)
+                .OrderByDescending(role => role.UtcTimestamp)
+                .Where(role => role.UserId == user && role.RoleId == roleId && role.GuildId == guildId)
                 .ToListAsync(token);
         }
         finally
@@ -202,13 +351,14 @@ public class PersistingRolesService : IPersistingRoleService, IHostedService, ID
         }
     }
 
-    public async Task<IReadOnlyList<PersistingRole>> GetPersistingRoles(ulong user, CancellationToken token = default)
+    public async Task<IReadOnlyList<PersistingRole>> GetPersistingRoles(ulong user, ulong guildId, CancellationToken token = default)
     {
         await _dbContextGate.WaitAsync(token);
         try
         {
             return await _dbContext.PersistingRoles
-                .Where(role => role.UserId == user)
+                .OrderByDescending(role => role.UtcTimestamp)
+                .Where(role => role.UserId == user && role.GuildId == guildId)
                 .ToListAsync(token);
         }
         finally
@@ -230,12 +380,18 @@ public class PersistingRolesService : IPersistingRoleService, IHostedService, ID
                 GuildId = guildId,
                 UserAddedBy = addedByUserId,
                 RoleId = roleId,
-                UtcRemoveAt = activeUntil
+                UtcRemoveAt = activeUntil,
+                UtcTimestamp = _timeProvider.GetUtcNow().UtcDateTime
             };
 
             _dbContext.PersistingRoles.Add(role);
 
             await _dbContext.SaveChangesAsync(token);
+
+            if (activeUntil.HasValue && _currentTimerComplete > activeUntil.Value)
+            {
+                await StartNextTimer(token);
+            }
         }
         finally
         {
@@ -280,14 +436,14 @@ public class PersistingRolesService : IPersistingRoleService, IHostedService, ID
                 entityEntry.State = EntityState.Detached;
             }
 
-            rowsUpdated = await _dbContext.RemoveWhere<PersistingRole>(role => role.UserId == userId && role.RoleId == roleId && role.GuildId == guildId, token);
+            rowsUpdated = await _dbContext.RemoveWhere<PersistingRole>(role => role.UserId == userId && role.RoleId == roleId && role.GuildId == guildId, token, userId, roleId, guildId);
         }
         finally
         {
             _dbContextGate.Release();
         }
 
-        await CheckMemberRoles(userId, guildId, token);
+        await CheckMemberRoles(userId, guildId, roleId, token);
         return rowsUpdated;
     }
 
@@ -305,7 +461,14 @@ public class PersistingRolesService : IPersistingRoleService, IHostedService, ID
             _dbContextGate.Release();
         }
 
-        await CheckMemberRoles(role.UserId, role.GuildId, token);
+        await CheckMemberRoles(role.UserId, role.GuildId, role.RoleId, token);
         return updated;
     }
+#nullable disable
+    private class TimerState
+    {
+        public int RoleId;
+        public Timer Timer;
+    }
+#nullable restore
 }

@@ -14,9 +14,11 @@ namespace UnturnedModdingCollective.Interactions.Commands.Admin;
 public class ApplicableRolesCommands : InteractionModuleBase<SocketInteractionContext<SocketSlashCommand>>
 {
     private readonly BotDbContext _dbContext;
-    public ApplicableRolesCommands(BotDbContext dbContext)
+    private readonly EmbedFactory _embedFactory;
+    public ApplicableRolesCommands(BotDbContext dbContext, EmbedFactory embedFactory)
     {
         _dbContext = dbContext;
+        _embedFactory = embedFactory;
     }
 
     [SlashCommand("add", "Add a role to be able to be applied for.")]
@@ -26,7 +28,7 @@ public class ApplicableRolesCommands : InteractionModuleBase<SocketInteractionCo
 
         if (user.Id != Context.Guild.OwnerId && !user.GuildPermissions.Has(GuildPermission.Administrator))
         {
-            await Context.Interaction.RespondAsync("No permissions.", ephemeral: true);
+            await Context.Interaction.RespondAsync(embed: _embedFactory.NoPermissionsEmbed(GuildPermission.AddReactions).Build(), ephemeral: true);
             return;
         }
 
@@ -96,7 +98,7 @@ public class ApplicableRolesCommands : InteractionModuleBase<SocketInteractionCo
 
         if (user.Id != Context.Guild.OwnerId && !user.GuildPermissions.Has(GuildPermission.Administrator))
         {
-            await Context.Interaction.RespondAsync("No permissions.", ephemeral: true);
+            await Context.Interaction.RespondAsync(embed: _embedFactory.NoPermissionsEmbed(GuildPermission.AddReactions).Build(), ephemeral: true);
             return;
         }
 

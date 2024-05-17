@@ -163,7 +163,7 @@ public class VoteLifetimeManager : IHostedService, IDisposable
                 }
 
                 IUserMessage? pollMessage = receivedMessages.Find(msg => msg.Id == role.PollMessageId);
-                pollMessage ??= await thread.GetMessageAsync(request.MessageChannelId, options: reqOpt) as IUserMessage;
+                pollMessage ??= await thread.GetMessageAsync(request.ThreadId, options: reqOpt) as IUserMessage;
 
                 if (pollMessage is not { Poll: not null })
                 {
@@ -229,6 +229,8 @@ public class VoteLifetimeManager : IHostedService, IDisposable
                     ++ctAccepted;
 
                 role.Accepted = accepted;
+                role.YesVotes = votesForYes.Count;
+                role.NoVotes = votesForNo.Count;
                 role.Votes.Clear();
                 for (int i = 0; i < votesForYes.Count + votesForNo.Count; i++)
                 {

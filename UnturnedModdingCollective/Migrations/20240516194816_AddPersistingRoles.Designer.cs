@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using UnturnedModdingCollective.Services;
 
@@ -11,9 +12,11 @@ using UnturnedModdingCollective.Services;
 namespace UnturnedModdingCollective.Migrations
 {
     [DbContext(typeof(BotDbContext))]
-    partial class BotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20240516194816_AddPersistingRoles")]
+    partial class AddPersistingRoles
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -79,9 +82,6 @@ namespace UnturnedModdingCollective.Migrations
                         .HasColumnType("bigint unsigned");
 
                     b.Property<DateTime?>("UtcRemoveAt")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<DateTime>("UtcTimestamp")
                         .HasColumnType("datetime(6)");
 
                     b.HasKey("Id");
@@ -167,17 +167,11 @@ namespace UnturnedModdingCollective.Migrations
                     b.Property<bool>("ClosedUnderError")
                         .HasColumnType("tinyint(1)");
 
-                    b.Property<int>("NoVotes")
-                        .HasColumnType("int");
-
                     b.Property<ulong?>("PollMessageId")
                         .HasColumnType("bigint unsigned");
 
                     b.Property<DateTime?>("UtcRoleApplied")
                         .HasColumnType("datetime(6)");
-
-                    b.Property<int>("YesVotes")
-                        .HasColumnType("int");
 
                     b.HasKey("RequestId", "RoleId");
 
