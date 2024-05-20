@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using UnturnedModdingCollective.API;
+using UnturnedModdingCollective.Interactions.Commands;
 using UnturnedModdingCollective.Interactions.Commands.Admin;
 using UnturnedModdingCollective.Interactions.Components;
 using UnturnedModdingCollective.IoC;
@@ -53,6 +54,7 @@ builder.Services.AddTransient<ISecretProvider, IdentitySecretProvider>();
 builder.Services.AddTransient<ILiveConfiguration<LiveConfiguration>, JsonLiveConfiguration<LiveConfiguration>>();
 
 builder.Services.AddTransient<PollFactory>();
+builder.Services.AddSingleton<HttpClient>();
 builder.Services.AddTransient<EmbedFactory>();
 builder.Services.AddTransient<EmoteService>();
 builder.Services.AddSingleton<VoteLifetimeManager>();
@@ -70,6 +72,7 @@ builder.Services.AddDiscordInteractionModule<RolePersistCommand>();
 builder.Services.AddDiscordInteractionModule<SetupRoleSelectCommand>();
 builder.Services.AddDiscordInteractionModule<VoteManagementCommands>();
 builder.Services.AddDiscordInteractionModule<ApplicableRolesCommands>();
+builder.Services.AddDiscordInteractionModule<UnityVersionCommand>();
 
 /* COMPONENTS */
 builder.Services.AddDiscordInteractionModule<StartPortfolioComponent>();

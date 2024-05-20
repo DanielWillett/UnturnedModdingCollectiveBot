@@ -3,7 +3,7 @@
   <PropertyGroup>
 
     <!-- Update either this value or Version to cause interactions to be resynced with Discord's servers. -->
-    <InteractionVersion>1</InteractionVersion>
+    <InteractionVersion>2</InteractionVersion>
 
     <Version>0.0.1</Version>
 

@@ -9,7 +9,7 @@ using UnturnedModdingCollective.Models;
 namespace UnturnedModdingCollective.Services;
 public class EmbedFactory
 {
-    private static readonly IReadOnlyDictionary<GuildPermission, string> PermissionNames = new Dictionary<GuildPermission, string>
+    private static readonly IReadOnlyDictionary<GuildPermission, string> GuildPermissionNames = new Dictionary<GuildPermission, string>
     {
         { GuildPermission.CreateInstantInvite, "Create Invite" },
         { GuildPermission.KickMembers, "Kick Members" },
@@ -65,19 +65,20 @@ public class EmbedFactory
     private readonly ILogger<EmbedFactory> _logger;
     private readonly BotDbContext _dbContext;
     private readonly DiscordSocketClient _discordClient;
+
     public EmbedFactory(ILogger<EmbedFactory> logger, BotDbContext dbContext, DiscordSocketClient discordClient)
     {
         _logger = logger;
         _dbContext = dbContext;
         _discordClient = discordClient;
     }
-
+    public string GetPermissionDisplayName(GuildPermission permission) => GuildPermissionNames.TryGetValue(permission, out string? v) ? v : permission.ToString();
     public EmbedBuilder NoPermissionsEmbed(GuildPermission requiredPermission)
     {
         return new EmbedBuilder()
             .WithColor(Color.Red)
             .WithTitle("Missing Permissions")
-            .WithDescription($"You must have the **{GetPermissionName(requiredPermission)}** permission to use this feature.");
+            .WithDescription($"You must have the **{GetPermissionDisplayName(requiredPermission)}** permission to use this feature.");
     }
 
     public async Task BuildMembershipApplicationMessage(IGuild guild, EmbedBuilder embedBuilder, ComponentBuilder componentBuilder)
@@ -144,5 +145,4 @@ public class EmbedFactory
         );
     }
 
-    public string GetPermissionName(GuildPermission permission) => PermissionNames.TryGetValue(permission, out string? v) ? v : permission.ToString();
 }
