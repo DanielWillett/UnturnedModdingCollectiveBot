@@ -5,13 +5,23 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.Reflection;
+using DanielWillett.ReflectionTools;
+using Discord.Rest;
 using UnturnedModdingCollective.API;
 using UnturnedModdingCollective.Models;
+using UnturnedModdingCollective.Models.Config;
 
 namespace UnturnedModdingCollective.Services;
 public class VoteLifetimeManager : IHostedService, IDisposable
 {
-    // todo timer needs to be removed from this list, need to pick a different type probably
+    private static readonly Func<IMessageChannel, BaseDiscordClient, ulong, RequestOptions, Task<RestMessage>>? InvokeIntlGetMessage =
+        Accessor.GenerateStaticCaller<Func<IMessageChannel, BaseDiscordClient, ulong, RequestOptions, Task<RestMessage>>>(
+                Type.GetType("Discord.Rest.ChannelHelper, Discord.Net.Rest")
+                    ?.GetMethod("GetMessageAsync", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!,
+                throwOnError: false, allowUnsafeTypeBinding: true
+            );
+
     private readonly ConcurrentDictionary<int, Timer> _timers = new ConcurrentDictionary<int, Timer>();
     private readonly SemaphoreSlim _pollFinalizeGate = new SemaphoreSlim(1, 1);
     private readonly CancellationTokenSource _tknSrc = new CancellationTokenSource();
@@ -22,6 +32,7 @@ public class VoteLifetimeManager : IHostedService, IDisposable
     private readonly ILogger<VoteLifetimeManager> _logger;
     private readonly DiscordSocketClient _discordClient;
     private readonly IPersistingRoleService _persistingRoles;
+    private readonly ILiveConfiguration<LiveConfiguration> _liveConfig;
     public VoteLifetimeManager(IServiceProvider serviceProvider)
     {
         _dbContextScope = serviceProvider.CreateScope();
@@ -31,6 +42,7 @@ public class VoteLifetimeManager : IHostedService, IDisposable
         _timeProvider = serviceProvider.GetRequiredService<TimeProvider>();
         _logger = serviceProvider.GetRequiredService<ILogger<VoteLifetimeManager>>();
         _persistingRoles = serviceProvider.GetRequiredService<IPersistingRoleService>();
+        _liveConfig = serviceProvider.GetRequiredService<ILiveConfiguration<LiveConfiguration>>();
     }
 
     async Task IHostedService.StartAsync(CancellationToken token)
@@ -55,6 +67,7 @@ public class VoteLifetimeManager : IHostedService, IDisposable
         {
             timer.Dispose();
         }
+        _timers.Clear();
     }
     void IDisposable.Dispose()
     {
@@ -104,7 +117,8 @@ public class VoteLifetimeManager : IHostedService, IDisposable
         }
 
         List<PersistingRole> newPersistRoles = new List<PersistingRole>(request.RequestedRoles.Count);
-            
+
+        DateTime now = _timeProvider.GetUtcNow().UtcDateTime;
         foreach (ReviewRequestRole role in request.RequestedRoles)
         {
             newPersistRoles.Add(new PersistingRole
@@ -112,7 +126,8 @@ public class VoteLifetimeManager : IHostedService, IDisposable
                 GuildId = guild.Id,
                 RoleId = role.RoleId,
                 UserAddedBy = 0ul,
-                UserId = request.UserId
+                UserId = request.UserId,
+                UtcTimestamp = now
             });
         }
 
@@ -177,15 +192,37 @@ public class VoteLifetimeManager : IHostedService, IDisposable
                 // check to make sure the poll has ended, if not, end it.
                 if (poll.Results is not { IsFinalized: true })
                 {
-                    await pollMessage.EndPollAsync(reqOpt);
+                    try
+                    {
+                        await pollMessage.EndPollAsync(reqOpt);
+                    }
+                    catch (Discord.Net.HttpException ex) when (ex.Message.Contains("520001" /* Poll expired */, StringComparison.Ordinal))
+                    {
+                        _logger.LogDebug("Failed to finalize poll, it's already expired.");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to finalize poll.");
+                    }
 
                     // refetch poll results if needed
                     if (pollMessage is not { Poll.Results.IsFinalized: true })
-                        pollMessage = await thread.GetMessageAsync(pollMessage.Id, options: reqOpt) as IUserMessage;
+                    {
+                        if (InvokeIntlGetMessage != null)
+                        {
+                            // force redownload the message using reflection, since Discord.NET caches and the poll update doesn't seem to arrive on time
+                            pollMessage = await InvokeIntlGetMessage(thread, _discordClient, pollMessage.Id, reqOpt) as IUserMessage;
+                        }
+                        else
+                        {
+                            pollMessage = await thread.GetMessageAsync(pollMessage.Id, options: reqOpt) as IUserMessage;
+                            _logger.LogWarning("Unable to redownload poll message without using cache, it could be out of date.");
+                        }
+                    }
                 }
 
                 // sanity check
-                if (pollMessage is not { Poll.Results.IsFinalized: true })
+                if (pollMessage is not { Poll.Results: not null })
                 {
                     _logger.LogWarning("Unable to finalize poll, poll results were not available after finalizing it.");
                     role.ClosedUnderError = true;
@@ -224,6 +261,8 @@ public class VoteLifetimeManager : IHostedService, IDisposable
 
                 List<IUser> votesForYes = await getYesesTask;
 
+                _logger.LogDebug($"{role.RoleId} - ({votesForYes.Count}-{votesForNo.Count})");
+
                 bool accepted = votesForYes.Count - votesForNo.Count >= roleRecord.NetVotesRequired || votesForYes.Count > 0 && votesForNo.Count == 0;
                 if (accepted)
                     ++ctAccepted;
@@ -250,6 +289,7 @@ public class VoteLifetimeManager : IHostedService, IDisposable
                         UserName = user.Username,
                         GlobalName = user.GlobalName ?? user.Username,
                     };
+
                     role.Votes.Add(reqVote);
                 }
             });
@@ -294,29 +334,50 @@ public class VoteLifetimeManager : IHostedService, IDisposable
         if (!request.UtcTimeVoteExpires.HasValue)
             throw new ArgumentException("Request has not started voting.");
 
-        TimeSpan timeToWait = finishAt - _timeProvider.GetUtcNow();
+        DateTime newFinishAt = finishAt.Subtract(_liveConfig.Configuraiton.PingTimeBeforeVoteClose);
+        TimeSpan secondTimeSpan = _liveConfig.Configuraiton.PingTimeBeforeVoteClose;
+
+        TimeSpan timeToWait = newFinishAt - _timeProvider.GetUtcNow();
+        bool isPingTimer = true;
         if (timeToWait <= TimeSpan.Zero)
         {
-            RunTriggerCompleted(request.Id);
-            return;
+            timeToWait = finishAt - _timeProvider.GetUtcNow();
+            if (timeToWait <= TimeSpan.Zero)
+            {
+                RunTriggerCompleted(request.Id);
+                return;
+            }
+
+            RunPingChannel(request.Id);
+            secondTimeSpan = timeToWait;
+
+            isPingTimer = false;
         }
 
         TimerRequestState state = new TimerRequestState
         {
-            RequestId = request.Id
+            RequestId = request.Id,
+            IsPingTimer = isPingTimer,
+            TimeForSecondSection = secondTimeSpan
         };
 
-        _logger.LogInformation("Queued request {0} for {1} at {2:G} (in {3:G}).", request.Id, request.UserName, finishAt.ToLocalTime(), timeToWait);
+        _logger.LogInformation("Queued request {0} for {1} at {2:G} (in {3:G}) (ping: {isPingTimer}).", request.Id, request.UserName, newFinishAt.ToLocalTime(), timeToWait, isPingTimer);
         Timer timer = new Timer(TimerCompleted, state, timeToWait, Timeout.InfiniteTimeSpan);
         state.Timer = timer;
 
-        Timer existing = _timers.GetOrAdd(request.Id, timer);
-        if (!ReferenceEquals(existing, timer))
+        Timer? old = null;
+
+        _timers.AddOrUpdate(request.Id, timer, (_, t) =>
         {
-            existing.Change(timeToWait, Timeout.InfiniteTimeSpan);
-            timer.Change(Timeout.Infinite, Timeout.Infinite);
-            timer.Dispose();
-        }
+            old = t;
+            return timer;
+        });
+
+        if (ReferenceEquals(old, timer) || old == null)
+            return;
+
+        old.Change(Timeout.Infinite, Timeout.Infinite);
+        old.Dispose();
     }
 
     private void TimerCompleted(object? stateBox)
@@ -326,9 +387,70 @@ public class VoteLifetimeManager : IHostedService, IDisposable
 
         state.Timer.Dispose();
         _timers.TryRemove(new KeyValuePair<int, Timer>(state.RequestId, state.Timer));
-        RunTriggerCompleted(state.RequestId);
-    }
+        if (!state.IsPingTimer)
+        {
+            RunTriggerCompleted(state.RequestId);
+            return;
+        }
 
+        state = new TimerRequestState
+        {
+            RequestId = state.RequestId,
+            TimeForSecondSection = state.TimeForSecondSection,
+            IsPingTimer = false
+        };
+
+        _logger.LogInformation("Queued request {0} in {3:G} (ping: {isPingTimer}).", state.RequestId, state.TimeForSecondSection, false);
+        Timer timer = new Timer(TimerCompleted, state, state.TimeForSecondSection, Timeout.InfiniteTimeSpan);
+        state.Timer = timer;
+
+        Timer? old = null;
+
+        _timers.AddOrUpdate(state.RequestId, timer, (_, t) =>
+        {
+            old = t;
+            return timer;
+        });
+
+        if (!ReferenceEquals(old, timer) && old != null)
+        {
+            old.Change(Timeout.Infinite, Timeout.Infinite);
+            old.Dispose();
+        }
+
+        RunPingChannel(state.RequestId);
+    }
+    private void RunPingChannel(int requestId)
+    {
+        Task.Run(async () =>
+        {
+            await _pollFinalizeGate.WaitAsync();
+            try
+            {
+                ulong councilRoleId = _liveConfig.Configuraiton.CouncilRole;
+
+                ReviewRequest? request = _dbContext.ReviewRequests.FirstOrDefault(req => req.Id == requestId);
+                if (request == null)
+                    return;
+
+                IThreadChannel? threadChannel = await _discordClient.GetChannelAsync(request.ThreadId) as IThreadChannel;
+                if (threadChannel == null)
+                    return;
+
+                IRole? councilRole = threadChannel.Guild.GetRole(councilRoleId);
+
+                DateTime closeTime = DateTime.SpecifyKind(request.UtcTimeVoteExpires ?? (_timeProvider.GetUtcNow().UtcDateTime - _liveConfig.Configuraiton.PingTimeBeforeVoteClose), DateTimeKind.Utc);
+
+                string mention = councilRole?.Mention ?? "@here";
+                
+                await threadChannel.SendMessageAsync($"{mention} This vote will close {TimestampTag.FormatFromDateTime(closeTime, TimestampTagStyles.Relative)}.");
+            }
+            finally
+            {
+                _pollFinalizeGate.Release();
+            }
+        });
+    }
     private void RunTriggerCompleted(int requestId)
     {
         Task.Run(async () =>
@@ -344,9 +466,18 @@ public class VoteLifetimeManager : IHostedService, IDisposable
             }
         }, _tknSrc.Token);
     }
+#nullable disable
     private class TimerRequestState
     {
         public Timer Timer;
         public int RequestId;
+        
+        /// <summary>
+        /// Timers have a stop point in between when they start and when the vote ends. This is true if the timer's on the first section.
+        /// </summary>
+        public bool IsPingTimer;
+
+        public TimeSpan TimeForSecondSection;
     }
+#nullable restore
 }

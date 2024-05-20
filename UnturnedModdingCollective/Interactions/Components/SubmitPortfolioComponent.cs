@@ -3,7 +3,9 @@ using Discord.Interactions;
 using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
 using System.Globalization;
+using UnturnedModdingCollective.API;
 using UnturnedModdingCollective.Models;
+using UnturnedModdingCollective.Models.Config;
 using UnturnedModdingCollective.Services;
 
 namespace UnturnedModdingCollective.Interactions.Components;
@@ -13,12 +15,20 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
     private readonly TimeProvider _timeProvider;
     private readonly PollFactory _pollFactory;
     private readonly VoteLifetimeManager _scheduler;
-    public SubmitPortfolioComponent(BotDbContext dbContext, TimeProvider timeProvider, PollFactory pollFactory, VoteLifetimeManager scheduler)
+    private readonly ILiveConfiguration<LiveConfiguration> _liveConfiguration;
+    public SubmitPortfolioComponent(
+        BotDbContext dbContext,
+        TimeProvider timeProvider,
+        PollFactory pollFactory,
+        VoteLifetimeManager scheduler,
+        ILiveConfiguration<LiveConfiguration> liveConfiguration
+        )
     {
         _dbContext = dbContext;
         _timeProvider = timeProvider;
         _pollFactory = pollFactory;
         _scheduler = scheduler;
+        _liveConfiguration = liveConfiguration;
     }
 
     internal const string SubmitPortfolioButtonPrefix = "submit_portfolio_btn_";
@@ -53,24 +63,26 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
 
         Task deferTask = Context.Interaction.DeferLoadingAsync();
 
+        TimeSpan voteTime = TimeSpan.FromHours(Math.Round(_liveConfiguration.Configuraiton.VoteTime.TotalHours));
+        if (voteTime.TotalDays > 7d || voteTime.TotalHours < 0.5f)
+            throw new InvalidOperationException("Configured value for \"VoteTime\" is not valid. It must be less than 7 days, non-zero, and non-negative.");
+
         // lock thread, remove the user's ability to view the thread
-        Task modifyThread = thread!.ModifyAsync(properties =>
+        Task modifyThread = thread.ModifyAsync(properties =>
         {
             properties.Locked = true;
-            //properties.PermissionOverwrites = new Optional<IEnumerable<Overwrite>>(
-            //[
-            //    new Overwrite(Context.User.Id, PermissionTarget.User, new OverwritePermissions(viewChannel: PermValue.Deny)),
-            //    new Overwrite(Context.Client.CurrentUser.Id, PermissionTarget.User, new OverwritePermissions(
-            //        sendMessages  : PermValue.Allow,
-            //        viewChannel   : PermValue.Allow,
-            //        manageChannel : PermValue.Allow)
-            //    )
-            //]);
+
+            // set auto-archive duration to be higher than the vote time
+            if (voteTime <= TimeSpan.FromHours(1d))
+                properties.AutoArchiveDuration = ThreadArchiveDuration.OneHour;
+            else if (voteTime <= TimeSpan.FromDays(1d))
+                properties.AutoArchiveDuration = ThreadArchiveDuration.OneDay;
+            else if (voteTime <= TimeSpan.FromDays(3d))
+                properties.AutoArchiveDuration = ThreadArchiveDuration.ThreeDays;
+            else
+                properties.AutoArchiveDuration = ThreadArchiveDuration.OneWeek;
         });
 
-
-        // todo proper config
-        TimeSpan voteTime = TimeSpan.FromHours(1d);
 
         // update database
         request.UtcTimeSubmitted = _timeProvider.GetUtcNow().UtcDateTime;

@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Serilog;
 using UnturnedModdingCollective.API;
 using UnturnedModdingCollective.Interactions.Commands;
@@ -36,7 +37,7 @@ builder.Services.AddSerilog((_, configuration) => configuration
 builder.Services.AddDiscordWebSockets()
     .ConfigureClient(config =>
     {
-        config.GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMembers;
+        config.GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMembers | GatewayIntents.GuildMessagePolls;
     })
     .WithInteractions(config =>
     {
@@ -51,7 +52,12 @@ builder.Services.AddDbContext<BotDbContext>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddTransient<ISecretProvider, IdentitySecretProvider>();
-builder.Services.AddTransient<ILiveConfiguration<LiveConfiguration>, JsonLiveConfiguration<LiveConfiguration>>();
+builder.Services.AddSingleton<ILiveConfiguration<LiveConfiguration>>(serviceProvider =>
+{
+    string liveConfigFilePath = Path.Combine(Environment.CurrentDirectory, "appsettings-live.json");
+
+    return new JsonLiveConfiguration<LiveConfiguration>(liveConfigFilePath, serviceProvider.GetRequiredService<ILogger<JsonLiveConfiguration<LiveConfiguration>>>());
+});
 
 builder.Services.AddTransient<PollFactory>();
 builder.Services.AddSingleton<HttpClient>();
@@ -68,11 +74,13 @@ builder.Services.AddTransient<IHostedService, PersistingRolesService>(x => x.Get
 builder.Services.AddSingleton<PersistingRolesService>();
 
 /* COMMANDS */
+builder.Services.AddDiscordInteractionModule<UnityVersionCommand>();
+
 builder.Services.AddDiscordInteractionModule<RolePersistCommand>();
 builder.Services.AddDiscordInteractionModule<SetupRoleSelectCommand>();
 builder.Services.AddDiscordInteractionModule<VoteManagementCommands>();
 builder.Services.AddDiscordInteractionModule<ApplicableRolesCommands>();
-builder.Services.AddDiscordInteractionModule<UnityVersionCommand>();
+builder.Services.AddDiscordInteractionModule<ConfigurationCommands>();
 
 /* COMPONENTS */
 builder.Services.AddDiscordInteractionModule<StartPortfolioComponent>();

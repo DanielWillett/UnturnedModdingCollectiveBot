@@ -45,7 +45,7 @@ public class StartPortfolioComponent : InteractionModuleBase<SocketInteractionCo
 
         // remove all roles the user has applied for in the past
         List<ReviewRequestRole> pastApplications = await _dbContext.Set<ReviewRequestRole>()
-            .Where(x => x.Request!.UserId == user.Id && !x.Request!.ResubmitApprover.HasValue && !x.Request.UtcTimeCancelled.HasValue)
+            .Where(x => x.Request!.UserId == user.Id && !x.Request!.ResubmitApprover.HasValue && !x.Request.UtcTimeCancelled.HasValue && !x.Request.ClosedUnderError)
             .ToListAsync();
 
         allowedRoles.RemoveAll(role => pastApplications.Any(pastApplication => pastApplication.RoleId == role.RoleId));
@@ -79,7 +79,7 @@ public class StartPortfolioComponent : InteractionModuleBase<SocketInteractionCo
 
         string threadChannelName = Context.User.GlobalName + " Portfolio";
 
-        IThreadChannel thread = await channel.CreateThreadAsync(threadChannelName, ThreadType.PrivateThread, ThreadArchiveDuration.OneWeek);
+        IThreadChannel thread = await channel.CreateThreadAsync(threadChannelName, ThreadType.PrivateThread, ThreadArchiveDuration.OneWeek, invitable: false);
 
         Task addUserTask = thread.AddUserAsync(user);
 

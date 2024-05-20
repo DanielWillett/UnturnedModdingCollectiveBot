@@ -33,6 +33,7 @@ public class JsonLiveConfiguration<T> : ILiveConfiguration<T> where T : class, I
     {
         _filePath = filePath;
         _dirPath = Path.GetDirectoryName(_filePath);
+        Reload();
     }
     public T Reload()
     {
@@ -41,7 +42,7 @@ public class JsonLiveConfiguration<T> : ILiveConfiguration<T> where T : class, I
             if (_dirPath != null)
                 Directory.CreateDirectory(_dirPath);
 
-            if (File.Exists(_filePath))
+            if (!File.Exists(_filePath))
             {
                 _config.SetDefaults();
                 WriteConfigurationIntl();
@@ -50,7 +51,7 @@ public class JsonLiveConfiguration<T> : ILiveConfiguration<T> where T : class, I
 
             T? config;
 
-            using (FileStream fs = new FileStream(_filePath, FileMode.Open, FileAccess.Write, FileShare.Read, 1, FileOptions.SequentialScan))
+            using (FileStream fs = new FileStream(_filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 1, FileOptions.SequentialScan))
                 config = JsonSerializer.Deserialize<T>(fs, _jsonOptions);
 
             if (config == null)

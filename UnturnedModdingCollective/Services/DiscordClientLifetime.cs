@@ -115,13 +115,19 @@ public class DiscordClientLifetime : IHostedService
             case LogSeverity.Verbose:
                 logger.LogDebug(arg.Exception, arg.Message);
                 break;
+            
             case LogSeverity.Error:
             case LogSeverity.Critical:
                 logger.LogError(arg.Exception, arg.Message);
                 break;
+
             case LogSeverity.Warning:
+                if (arg.Exception is GatewayReconnectException ex)
+                    logger.LogInformation(ex.Message);
+
                 logger.LogWarning(arg.Exception, arg.Message);
                 break;
+            
             default:
                 logger.LogInformation(arg.Exception, arg.Message);
                 break;
