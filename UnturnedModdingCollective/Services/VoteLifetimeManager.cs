@@ -1,4 +1,6 @@
-﻿using Discord;
+﻿using DanielWillett.ReflectionTools;
+using Discord;
+using Discord.Rest;
 using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -6,8 +8,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Reflection;
-using DanielWillett.ReflectionTools;
-using Discord.Rest;
 using UnturnedModdingCollective.API;
 using UnturnedModdingCollective.Models;
 using UnturnedModdingCollective.Models.Config;
