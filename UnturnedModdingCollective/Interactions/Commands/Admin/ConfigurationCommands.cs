@@ -60,7 +60,7 @@ public class ConfigurationCommands : InteractionModuleBase<SocketInteractionCont
         {
             TimeSpan ts = TimeUtility.ParseTimespan(value);
 
-            oldValue = liveConfig.PingTimeBeforeVoteClose.ToString("G", CultureInfo.InvariantCulture);
+            oldValue = liveConfig.TimeBetweenApplications.ToString("G", CultureInfo.InvariantCulture);
             newValue = ts.ToString("G", CultureInfo.InvariantCulture);
             settingName = "Time Between Applications";
 

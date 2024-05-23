@@ -19,6 +19,7 @@ public class LiveConfiguration : IDefaultable
     public TimeSpan TimeBetweenApplications { get; set; }
     public void SetDefaults()
     {
+        TimeBetweenApplications = TimeSpan.FromDays(60d);
         VoteTime = TimeSpan.FromDays(3d);
         PingTimeBeforeVoteClose = TimeSpan.FromDays(1d);
     }

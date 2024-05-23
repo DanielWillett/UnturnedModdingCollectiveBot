@@ -42,7 +42,7 @@ public class VoteManagementCommands : InteractionModuleBase<SocketInteractionCon
 
         TimeSpan allowedGapTime = _liveConfig.Configuraiton.TimeBetweenApplications;
 
-        double seconds = allowedGapTime.Seconds;
+        double seconds = allowedGapTime.TotalSeconds;
         DateTime now = _timeProvider.GetUtcNow().UtcDateTime;
 
         List<ReviewRequestRole> requestRoles = await _dbContext.Set<ReviewRequestRole>()
@@ -51,7 +51,7 @@ public class VoteManagementCommands : InteractionModuleBase<SocketInteractionCon
                                                             && x.RoleId == role.Id
                                                             && !x.ClosedUnderError
                                                             && !x.ResubmitApprover.HasValue && !x.UtcTimeCancelled.HasValue
-                                                            && (seconds <= 0 || EF.Functions.DateDiffSecond(now, x.UtcTimeVoteExpires) <= seconds))
+                                                            && (seconds <= 0 || EF.Functions.DateDiffSecond(x.UtcTimeVoteExpires, now) >= seconds))
                                                         .ToListAsync();
 
         if (requestRoles.Count == 0)
@@ -129,10 +129,11 @@ public class VoteManagementCommands : InteractionModuleBase<SocketInteractionCon
                 IRole? guildRole = Context.Guild.Roles.FirstOrDefault(x => x.Id == role.RoleId);
 
 
-                descBuilder.Append("__").Append(guildRole != null
+                bool denied = !role.Accepted.GetValueOrDefault(true);
+                descBuilder.Append(denied ? "~~" : "__").Append(guildRole != null
                     ? guildRole.Mention
                     : role.RoleId.ToString(CultureInfo.InvariantCulture)
-                ).Append("__");
+                ).Append(denied ? "~~" : "__");
 
                 if (role.UtcTimeCancelled.HasValue)
                 {

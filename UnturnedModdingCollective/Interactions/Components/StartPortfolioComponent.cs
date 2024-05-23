@@ -50,15 +50,15 @@ public class StartPortfolioComponent : InteractionModuleBase<SocketInteractionCo
 
         TimeSpan allowedGapTime = _liveConfig.Configuraiton.TimeBetweenApplications;
 
-        double seconds = allowedGapTime.Seconds;
+        double seconds = allowedGapTime.TotalSeconds;
         DateTime now = _timeProvider.GetUtcNow().UtcDateTime;
 
         // remove all roles the user has applied for in the past
         List<ReviewRequestRole> pastApplications = await _dbContext.Set<ReviewRequestRole>()
             .Where(x => x.Request!.UserId == user.Id
                         && !x.ResubmitApprover.HasValue
-                        && (!x.UtcTimeCancelled.HasValue
-                            || seconds > 0 && EF.Functions.DateDiffSecond(now, x.UtcTimeVoteExpires) > seconds)
+                        && (x.UtcTimeCancelled.HasValue
+                            || seconds > 0 && EF.Functions.DateDiffSecond(x.UtcTimeSubmitted, now) < seconds)
                         && !x.ClosedUnderError)
             .ToListAsync();
 
