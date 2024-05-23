@@ -1,10 +1,12 @@
-﻿using System.Globalization;
-using System.Text;
-using Discord;
+﻿using Discord;
 using Discord.Interactions;
 using Discord.WebSocket;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
+using System.Text;
+using UnturnedModdingCollective.API;
 using UnturnedModdingCollective.Models;
+using UnturnedModdingCollective.Models.Config;
 using UnturnedModdingCollective.Services;
 
 namespace UnturnedModdingCollective.Interactions.Commands.Admin;
@@ -17,12 +19,66 @@ public class VoteManagementCommands : InteractionModuleBase<SocketInteractionCon
     private readonly VoteLifetimeManager _votes;
     private readonly TimeProvider _timeProvider;
     private readonly EmbedFactory _embedFactory;
-    public VoteManagementCommands(BotDbContext dbContext, VoteLifetimeManager votes, TimeProvider timeProvider, EmbedFactory embedFactory)
+    private readonly ILiveConfiguration<LiveConfiguration> _liveConfig;
+    public VoteManagementCommands(BotDbContext dbContext, VoteLifetimeManager votes, TimeProvider timeProvider, EmbedFactory embedFactory, ILiveConfiguration<LiveConfiguration> liveConfig)
     {
         _dbContext = dbContext;
         _votes = votes;
         _timeProvider = timeProvider;
         _embedFactory = embedFactory;
+        _liveConfig = liveConfig;
+    }
+
+    [SlashCommand("allow-resubmit", "Allows a user to resubmit a vote for a role now, instead of waiting for the timeout.")]
+    public async Task AllowVoteResubmit(IUser user, IRole role)
+    {
+        IGuildUser caller = (IGuildUser)Context.User;
+
+        if (caller.Id != Context.Guild.OwnerId && !caller.GuildPermissions.Has(GuildPermission.Administrator))
+        {
+            await Context.Interaction.RespondAsync(embed: _embedFactory.NoPermissionsEmbed(GuildPermission.Administrator).Build(), ephemeral: true);
+            return;
+        }
+
+        TimeSpan allowedGapTime = _liveConfig.Configuraiton.TimeBetweenApplications;
+
+        double seconds = allowedGapTime.Seconds;
+        DateTime now = _timeProvider.GetUtcNow().UtcDateTime;
+
+        List<ReviewRequestRole> requestRoles = await _dbContext.Set<ReviewRequestRole>()
+                                                        .Where(x => 
+                                                            x.Request!.UserId == user.Id
+                                                            && x.RoleId == role.Id
+                                                            && !x.ClosedUnderError
+                                                            && !x.ResubmitApprover.HasValue && !x.UtcTimeCancelled.HasValue
+                                                            && (seconds <= 0 || EF.Functions.DateDiffSecond(now, x.UtcTimeVoteExpires) <= seconds))
+                                                        .ToListAsync();
+
+        if (requestRoles.Count == 0)
+        {
+            await Context.Interaction.RespondAsync(embed: new EmbedBuilder()
+                    .WithColor(Color.Red)
+                    .WithTitle("No Active Request Restrictions")
+                    .WithDescription($"{user.Mention} doesn't have any review requests restrictions for {role.Mention}.")
+                    .Build(),
+                ephemeral: true
+            );
+            return;
+        }
+
+        foreach (ReviewRequestRole r in requestRoles)
+        {
+            r.ResubmitApprover = caller.Id;
+            _dbContext.Update(r);
+        }
+
+        await _dbContext.SaveChangesAsync();
+        await Context.Interaction.RespondAsync(embed: new EmbedBuilder()
+            .WithColor(Color.Green)
+            .WithTitle("Lifted Request Restrictions")
+            .WithDescription($"Lifted restrictions from {requestRoles.Count} previous request{(requestRoles.Count == 1 ? "s" : string.Empty)}.")
+            .Build()
+        );
     }
 
     [SlashCommand("view", "View vote history on a user.")]
@@ -62,30 +118,35 @@ public class VoteManagementCommands : InteractionModuleBase<SocketInteractionCon
             if (descBuilder.Length != 0)
                 descBuilder.AppendLine();
 
-            descBuilder.Append("Request at ").Append(TimestampTag.FormatFromDateTime(DateTime.SpecifyKind(request.UtcTimeStarted, DateTimeKind.Utc), TimestampTagStyles.LongDateTime));
-            if (request.UtcTimeCancelled.HasValue)
-            {
-                descBuilder.AppendLine(" cancelled.");
-                continue;
-            }
-            
-            if (request.ClosedUnderError)
-            {
-                descBuilder.AppendLine(" was closed with an error.");
-                continue;
-            }
-
-            descBuilder.Append('.').AppendLine();
+            descBuilder.Append("Request at ")
+                       .Append(TimestampTag.FormatFromDateTime(DateTime.SpecifyKind(request.UtcTimeStarted, DateTimeKind.Utc), TimestampTagStyles.LongDateTime))
+                       .Append('.')
+                       .AppendLine();
 
             descBuilder.AppendLine("**Roles**");
             foreach (ReviewRequestRole role in request.RequestedRoles)
             {
                 IRole? guildRole = Context.Guild.Roles.FirstOrDefault(x => x.Id == role.RoleId);
 
+
                 descBuilder.Append("__").Append(guildRole != null
                     ? guildRole.Mention
                     : role.RoleId.ToString(CultureInfo.InvariantCulture)
-                ).AppendLine("__");
+                ).Append("__");
+
+                if (role.UtcTimeCancelled.HasValue)
+                {
+                    descBuilder.AppendLine(" - Cancelled.");
+                    continue;
+                }
+
+                if (role.ClosedUnderError)
+                {
+                    descBuilder.AppendLine(" - Closed by error.");
+                    continue;
+                }
+
+                descBuilder.AppendLine();
 
                 foreach (ReviewRequestVote vote in role.Votes.OrderByDescending(x => x.Vote))
                 {
@@ -101,6 +162,15 @@ public class VoteManagementCommands : InteractionModuleBase<SocketInteractionCon
                     descBuilder.AppendLine();
                 }
             }
+
+            if (descBuilder.Length >= 4096)
+                break;
+        }
+
+        if (descBuilder.Length > 4096)
+        {
+            descBuilder.Remove(4093, descBuilder.Length - 4093);
+            descBuilder.Append("...");
         }
 
         await Context.Interaction.RespondAsync(embed: new EmbedBuilder()
@@ -125,12 +195,13 @@ public class VoteManagementCommands : InteractionModuleBase<SocketInteractionCon
 
         IThreadChannel? thread = Context.Channel as IThreadChannel;
 
-        ReviewRequest? request = null;
+        ReviewRequestRole? request = null;
         if (thread != null)
         {
-            request = await _dbContext.ReviewRequests
+            request = await _dbContext.Set<ReviewRequestRole>()
+                .Include(x => x.Request)
                 .Where(req => !req.ClosedUnderError && req.UtcTimeSubmitted.HasValue && !req.UtcTimeClosed.HasValue)
-                .OrderByDescending(req => req.UtcTimeStarted)
+                .OrderByDescending(req => req.Request!.UtcTimeStarted)
                 .FirstOrDefaultAsync(req => req.ThreadId == thread.Id);
         }
 
@@ -148,7 +219,7 @@ public class VoteManagementCommands : InteractionModuleBase<SocketInteractionCon
 
         await Context.Interaction.DeferAsync();
 
-        await _votes.FinalizePoll(request.Id);
+        await _votes.FinalizePoll(request.RequestId, request.RoleId);
 
         string endTime = TimestampTag.FormatFromDateTime(
             DateTime.SpecifyKind(request.UtcTimeVoteExpires.GetValueOrDefault(), DateTimeKind.Utc),

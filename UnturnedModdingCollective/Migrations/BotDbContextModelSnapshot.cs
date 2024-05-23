@@ -97,15 +97,9 @@ namespace UnturnedModdingCollective.Migrations
 
                     MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<bool>("ClosedUnderError")
-                        .HasColumnType("tinyint(1)");
-
                     b.Property<string>("GlobalName")
                         .HasMaxLength(32)
                         .HasColumnType("varchar(32)");
-
-                    b.Property<ulong?>("ResubmitApprover")
-                        .HasColumnType("bigint unsigned");
 
                     b.Property<int?>("RolesAccepted")
                         .HasColumnType("int");
@@ -116,9 +110,6 @@ namespace UnturnedModdingCollective.Migrations
                     b.Property<ulong>("Steam64")
                         .HasColumnType("bigint unsigned");
 
-                    b.Property<ulong>("ThreadId")
-                        .HasColumnType("bigint unsigned");
-
                     b.Property<ulong>("UserId")
                         .HasColumnType("bigint unsigned");
 
@@ -126,19 +117,7 @@ namespace UnturnedModdingCollective.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("varchar(32)");
 
-                    b.Property<DateTime?>("UtcTimeCancelled")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<DateTime?>("UtcTimeClosed")
-                        .HasColumnType("datetime(6)");
-
                     b.Property<DateTime>("UtcTimeStarted")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<DateTime?>("UtcTimeSubmitted")
-                        .HasColumnType("datetime(6)");
-
-                    b.Property<DateTime?>("UtcTimeVoteExpires")
                         .HasColumnType("datetime(6)");
 
                     b.HasKey("Id");
@@ -167,7 +146,22 @@ namespace UnturnedModdingCollective.Migrations
                     b.Property<ulong?>("PollMessageId")
                         .HasColumnType("bigint unsigned");
 
-                    b.Property<DateTime?>("UtcRoleApplied")
+                    b.Property<ulong?>("ResubmitApprover")
+                        .HasColumnType("bigint unsigned");
+
+                    b.Property<ulong>("ThreadId")
+                        .HasColumnType("bigint unsigned");
+
+                    b.Property<DateTime?>("UtcTimeCancelled")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("UtcTimeClosed")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("UtcTimeSubmitted")
+                        .HasColumnType("datetime(6)");
+
+                    b.Property<DateTime?>("UtcTimeVoteExpires")
                         .HasColumnType("datetime(6)");
 
                     b.Property<int>("YesVotes")

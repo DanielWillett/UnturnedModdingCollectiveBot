@@ -37,6 +37,26 @@ namespace UnturnedModdingCollective.Migrations
                 .Annotation("MySql:CharSet", "utf8mb4");
 
             migrationBuilder.CreateTable(
+                name: "persisting_roles",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("MySql:ValueGenerationStrategy", MySqlValueGenerationStrategy.IdentityColumn),
+                    UserId = table.Column<ulong>(type: "bigint unsigned", nullable: false),
+                    UtcRemoveAt = table.Column<DateTime>(type: "datetime(6)", nullable: true),
+                    ExpiryProcessed = table.Column<bool>(type: "tinyint(1)", nullable: false),
+                    GuildId = table.Column<ulong>(type: "bigint unsigned", nullable: false),
+                    RoleId = table.Column<ulong>(type: "bigint unsigned", nullable: false),
+                    UserAddedBy = table.Column<ulong>(type: "bigint unsigned", nullable: false),
+                    UtcTimestamp = table.Column<DateTime>(type: "datetime(6)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_persisting_roles", x => x.Id);
+                })
+                .Annotation("MySql:CharSet", "utf8mb4");
+
+            migrationBuilder.CreateTable(
                 name: "review_requests",
                 columns: table => new
                 {
@@ -44,22 +64,13 @@ namespace UnturnedModdingCollective.Migrations
                         .Annotation("MySql:ValueGenerationStrategy", MySqlValueGenerationStrategy.IdentityColumn),
                     UserId = table.Column<ulong>(type: "bigint unsigned", nullable: false),
                     Steam64 = table.Column<ulong>(type: "bigint unsigned", nullable: false),
-                    MessageId = table.Column<ulong>(type: "bigint unsigned", nullable: false),
-                    MessageChannelId = table.Column<ulong>(type: "bigint unsigned", nullable: false),
-                    ThreadId = table.Column<ulong>(type: "bigint unsigned", nullable: false),
-                    ClosedUnderError = table.Column<bool>(type: "tinyint(1)", nullable: false),
                     GlobalName = table.Column<string>(type: "varchar(32)", maxLength: 32, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     UserName = table.Column<string>(type: "varchar(32)", maxLength: 32, nullable: true)
                         .Annotation("MySql:CharSet", "utf8mb4"),
                     UtcTimeStarted = table.Column<DateTime>(type: "datetime(6)", nullable: false),
-                    UtcTimeCancelled = table.Column<DateTime>(type: "datetime(6)", nullable: true),
-                    UtcTimeSubmitted = table.Column<DateTime>(type: "datetime(6)", nullable: true),
-                    UtcTimeVoteExpires = table.Column<DateTime>(type: "datetime(6)", nullable: true),
-                    UtcTimeClosed = table.Column<DateTime>(type: "datetime(6)", nullable: true),
                     RolesAppliedFor = table.Column<int>(type: "int", nullable: false),
-                    RolesAccepted = table.Column<int>(type: "int", nullable: true),
-                    ResubmitApprover = table.Column<ulong>(type: "bigint unsigned", nullable: true)
+                    RolesAccepted = table.Column<int>(type: "int", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -75,7 +86,15 @@ namespace UnturnedModdingCollective.Migrations
                     Request = table.Column<int>(type: "int", nullable: false),
                     ClosedUnderError = table.Column<bool>(type: "tinyint(1)", nullable: false),
                     PollMessageId = table.Column<ulong>(type: "bigint unsigned", nullable: true),
-                    Accepted = table.Column<bool>(type: "tinyint(1)", nullable: true)
+                    Accepted = table.Column<bool>(type: "tinyint(1)", nullable: true),
+                    YesVotes = table.Column<int>(type: "int", nullable: false),
+                    NoVotes = table.Column<int>(type: "int", nullable: false),
+                    ThreadId = table.Column<ulong>(type: "bigint unsigned", nullable: false),
+                    ResubmitApprover = table.Column<ulong>(type: "bigint unsigned", nullable: true),
+                    UtcTimeCancelled = table.Column<DateTime>(type: "datetime(6)", nullable: true),
+                    UtcTimeSubmitted = table.Column<DateTime>(type: "datetime(6)", nullable: true),
+                    UtcTimeVoteExpires = table.Column<DateTime>(type: "datetime(6)", nullable: true),
+                    UtcTimeClosed = table.Column<DateTime>(type: "datetime(6)", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -127,6 +146,9 @@ namespace UnturnedModdingCollective.Migrations
         {
             migrationBuilder.DropTable(
                 name: "applicable_roles");
+
+            migrationBuilder.DropTable(
+                name: "persisting_roles");
 
             migrationBuilder.DropTable(
                 name: "review_request_votes");

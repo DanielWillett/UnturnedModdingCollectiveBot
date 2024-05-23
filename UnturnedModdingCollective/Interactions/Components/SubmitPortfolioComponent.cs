@@ -37,7 +37,7 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
     [ComponentInteraction($"{CancelPortfolioButtonPrefix}*")]
     public async Task ReceiveCancelButtonPress()
     {
-        ReviewRequest? request = await ValidateButtonPress(true);
+        ReviewRequestRole? request = await ValidateButtonPress(true);
         if (request == null)
             return;
 
@@ -55,68 +55,68 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
     [ComponentInteraction($"{SubmitPortfolioButtonPrefix}*")]
     public async Task ReceiveSubmitButtonPress()
     {
-        ReviewRequest? request = await ValidateButtonPress(true);
+        ReviewRequestRole? request = await ValidateButtonPress(true);
         if (request == null)
             return;
 
         IThreadChannel thread = (IThreadChannel)Context.Interaction.Message.Channel;
 
-        Task deferTask = Context.Interaction.DeferLoadingAsync();
 
         TimeSpan voteTime = TimeSpan.FromHours(Math.Round(_liveConfiguration.Configuraiton.VoteTime.TotalHours));
         if (voteTime.TotalDays > 7d || voteTime.TotalHours < 0.5f)
             throw new InvalidOperationException("Configured value for \"VoteTime\" is not valid. It must be less than 7 days, non-zero, and non-negative.");
 
-        // lock thread, remove the user's ability to view the thread
-        Task modifyThread = thread.ModifyAsync(properties =>
-        {
-            properties.Locked = true;
-
-            // set auto-archive duration to be higher than the vote time
-            if (voteTime <= TimeSpan.FromHours(1d))
-                properties.AutoArchiveDuration = ThreadArchiveDuration.OneHour;
-            else if (voteTime <= TimeSpan.FromDays(1d))
-                properties.AutoArchiveDuration = ThreadArchiveDuration.OneDay;
-            else if (voteTime <= TimeSpan.FromDays(3d))
-                properties.AutoArchiveDuration = ThreadArchiveDuration.ThreeDays;
-            else
-                properties.AutoArchiveDuration = ThreadArchiveDuration.OneWeek;
-        });
-
-
         // update database
         request.UtcTimeSubmitted = _timeProvider.GetUtcNow().UtcDateTime;
         request.UtcTimeVoteExpires = request.UtcTimeSubmitted.Value.Add(voteTime);
-        request.UserName = Context.User.Username;
-        request.GlobalName = Context.User.GlobalName ?? string.Empty;
+        request.Request!.UserName = Context.User.Username;
+        request.Request!.GlobalName = Context.User.GlobalName ?? string.Empty;
 
         try
         {
+            await Context.Interaction.RespondAsync(embed: new EmbedBuilder()
+                .WithColor(Color.Green)
+                .WithTitle("Submitted")
+                .WithDescription($"Your portfolio has been submitted, you should receive a DM {
+                                    TimestampTag.FormatFromDateTime(request.UtcTimeVoteExpires.Value, TimestampTagStyles.Relative)
+                                 } when the vote closes and the decision is made. You've been locked out of this thread and can no longer see new messages, " +
+                                 "although Discord may keep you in the channel until you click out.")
+                .Build());
+
+            // lock thread, remove the user's ability to view the thread
+            Task modifyThread = thread.ModifyAsync(properties =>
+            {
+                properties.Locked = true;
+
+                // set auto-archive duration to be higher than the vote time
+                if (voteTime <= TimeSpan.FromHours(1d))
+                    properties.AutoArchiveDuration = ThreadArchiveDuration.OneHour;
+                else if (voteTime <= TimeSpan.FromDays(1d))
+                    properties.AutoArchiveDuration = ThreadArchiveDuration.OneDay;
+                else if (voteTime <= TimeSpan.FromDays(3d))
+                    properties.AutoArchiveDuration = ThreadArchiveDuration.ThreeDays;
+                else
+                    properties.AutoArchiveDuration = ThreadArchiveDuration.OneWeek;
+            });
+
             await thread.RemoveUserAsync((IGuildUser)Context.User);
             await modifyThread;
 
-            // send the vote polls
-            await Parallel.ForEachAsync(request.RequestedRoles, async (link, _) =>
-            {
-                IRole? discordRole = Context.Guild.Roles.FirstOrDefault(r => r.Id == link.RoleId);
+            // send the vote poll
+            IRole? discordRole = Context.Guild.Roles.FirstOrDefault(r => r.Id == request.RoleId);
 
-                string question = $"Should {Context.User.GlobalName ?? Context.User.Username} receive the role {discordRole?.Name ?? link.RoleId.ToString(CultureInfo.InvariantCulture)}?";
-                IMessage poll = await thread.SendMessageAsync(poll: _pollFactory.CreateYesNoPoll(question, voteTime));
+            string question = $"Should {Context.User.GlobalName ?? Context.User.Username} receive the role {discordRole?.Name ?? request.RoleId.ToString(CultureInfo.InvariantCulture)}?";
+            IMessage poll = await thread.SendMessageAsync(discordRole?.Mention, poll: _pollFactory.CreateYesNoPoll(question, voteTime));
 
-                link.PollMessageId = poll.Id;
-            });
-
-            foreach (ReviewRequestRole link in request.RequestedRoles)
-                _dbContext.Update(link);
+            request.PollMessageId = poll.Id;
 
             // update request so the vote expires just after the poll ends instead of just before
             request.UtcTimeVoteExpires = _timeProvider.GetUtcNow().UtcDateTime.Add(voteTime);
 
-            await deferTask;
-            await Context.Interaction.DeleteOriginalResponseAsync();
         }
         finally
         {
+            _dbContext.Update(request.Request);
             _dbContext.Update(request);
             Task saveTask = _dbContext.SaveChangesAsync();
             _scheduler.StartVoteTimer(request);
@@ -124,7 +124,7 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
         }
     }
 
-    private async Task<ReviewRequest?> ValidateButtonPress(bool isCancel)
+    private async Task<ReviewRequestRole?> ValidateButtonPress(bool isCancel)
     {
         // parse user id from button custom id
 
@@ -147,15 +147,15 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
 
         IThreadChannel? thread = Context.Interaction.Message.Channel as IThreadChannel;
 
-        ReviewRequest? request = null;
+        ReviewRequestRole? request = null;
         if (thread != null)
         {
-            request = await _dbContext.ReviewRequests
-                .Include(x => x.RequestedRoles)
-                .FirstOrDefaultAsync(req => req.UserId == userId && req.ThreadId == thread.Id);
+            request = await _dbContext.Set<ReviewRequestRole>()
+                .Include(x => x.Request)
+                .FirstOrDefaultAsync(req => req.Request!.UserId == userId && req.ThreadId == thread.Id);
         }
 
-        if (request != null)
+        if (request?.Request != null)
             return request;
 
         await Context.Interaction.RespondAsync(embed: new EmbedBuilder()

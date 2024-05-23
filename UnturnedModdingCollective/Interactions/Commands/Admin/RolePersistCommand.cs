@@ -162,19 +162,20 @@ public class RolePersistCommand : InteractionModuleBase<SocketInteractionContext
                     .WithColor(Color.Green)
                     .WithTitle("No Persisting Roles")
                     .WithDescription($"There aren't any persisting roles on {user.Mention}.")
-                    .Build()
+                    .Build(),
+                ephemeral: true
             );
             return;
         }
 
         await Context.Interaction.DeferAsync();
 
-        List<ReviewRequest>? votes = roles.All(x => x.UserAddedBy != 0ul)
+        List<ReviewRequestRole>? roleRequests = roles.All(x => x.UserAddedBy != 0ul)
             ? null
-            : await _dbContext.ReviewRequests
-                .Include(x => x.RequestedRoles)
-                .ThenInclude(x => x.Votes)
-                .Where(x => x.UserId == user.Id && x.UtcTimeClosed.HasValue)
+            : await _dbContext.Set<ReviewRequestRole>()
+                .Include(x => x.Request)
+                .Include(x => x.Votes)
+                .Where(x => x.Request!.UserId == user.Id && x.UtcTimeClosed.HasValue)
                 .OrderByDescending(x => x.UtcTimeClosed)
                 .ToListAsync();
 
@@ -225,9 +226,7 @@ public class RolePersistCommand : InteractionModuleBase<SocketInteractionContext
                 descBuilder.Append(Environment.NewLine)
                            .Append("Added by vote");
 
-                ReviewRequestRole? request = votes!
-                    .SelectMany(x => x.RequestedRoles)
-                    .FirstOrDefault(x => x.RoleId == role.RoleId);
+                ReviewRequestRole? request = roleRequests!.FirstOrDefault(x => x.RoleId == role.RoleId);
 
                 if (request != null && request.YesVotes + request.NoVotes > 0)
                 {
@@ -261,7 +260,8 @@ public class RolePersistCommand : InteractionModuleBase<SocketInteractionContext
             .WithColor(Color.Green)
             .WithTitle("Persisting Roles")
             .WithDescription(descBuilder.ToString())
-            .Build()
+            .Build(),
+            ephemeral: true
         );
     }
     private static string GetClockProgressEmoji(DateTime now, PersistingRole role)

@@ -1,6 +1,4 @@
-﻿using System.Collections.Concurrent;
-using System.Reflection;
-using Discord;
+﻿using Discord;
 using Discord.Interactions;
 using Discord.Rest;
 using Discord.WebSocket;
@@ -8,6 +6,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
+using System.Reflection;
 using UnturnedModdingCollective.API;
 
 namespace UnturnedModdingCollective.Services;
@@ -24,11 +24,12 @@ public class DiscordClientLifetime : IHostedService
     private readonly DiscordSocketClient _discordClient;
     private readonly InteractionService _interactionService;
 
-    private readonly bool _hasAnyInteractions;
-
     private string _interactionVersionFilePath = null!;
     private Version? _lastUpdatedInteractionVersion;
     private ulong _lastUpdatedInteractionGuildId;
+
+    private readonly TaskCompletionSource _readyTask = new TaskCompletionSource();
+    private bool _isReady;
     public DiscordClientLifetime(IServiceProvider serviceProvider)
     {
         _serviceProvider = serviceProvider;
@@ -36,14 +37,17 @@ public class DiscordClientLifetime : IHostedService
         _discordClient = serviceProvider.GetRequiredService<DiscordSocketClient>();
         _interactionService = serviceProvider.GetRequiredService<InteractionService>();
 
-        _hasAnyInteractions = serviceProvider.GetServices<IInteractionModuleBase>().Any();
-
         _loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
         _logger = _loggerFactory.CreateLogger<DiscordSocketClient>();
         _configuration = serviceProvider.GetRequiredService<IConfiguration>();
         _secretProvider = serviceProvider.GetRequiredService<ISecretProvider>();
 
         ReadInteractionRegistrationVersion();
+    }
+
+    public Task WaitUntilReady()
+    {
+        return _isReady ? Task.CompletedTask : _readyTask.Task;
     }
 
     async Task IHostedService.StartAsync(CancellationToken cancellationToken)
@@ -61,8 +65,7 @@ public class DiscordClientLifetime : IHostedService
         _discordClient.Log += HandleLog;
         _discordClient.Ready += HandleReady;
 
-        if (_hasAnyInteractions)
-            _discordClient.InteractionCreated += HandleInteractionReceived;
+        _discordClient.InteractionCreated += HandleInteractionReceived;
 
         await _discordClient.LoginAsync(TokenType.Bot, token);
         await _discordClient.StartAsync();
@@ -76,8 +79,7 @@ public class DiscordClientLifetime : IHostedService
         _discordClient.Log -= HandleLog;
         _discordClient.Ready -= HandleReady;
 
-        if (_hasAnyInteractions)
-            _discordClient.InteractionCreated -= HandleInteractionReceived;
+        _discordClient.InteractionCreated -= HandleInteractionReceived;
     }
     private async Task HandleInteractionReceived(SocketInteraction interaction)
     {
@@ -122,10 +124,10 @@ public class DiscordClientLifetime : IHostedService
                 break;
 
             case LogSeverity.Warning:
-                if (arg.Exception is GatewayReconnectException ex)
-                    logger.LogInformation(ex.Message);
-
-                logger.LogWarning(arg.Exception, arg.Message);
+                if (string.Equals(arg.Source, "Discord Gateway", StringComparison.Ordinal) && arg.Exception is GatewayReconnectException or TaskCanceledException)
+                    logger.LogInformation(arg.Exception.Message);
+                else
+                    logger.LogWarning(arg.Exception, arg.Message);
                 break;
             
             default:
@@ -145,6 +147,8 @@ public class DiscordClientLifetime : IHostedService
 
         IUser currentUser = _discordClient.CurrentUser;
         _logger.LogDebug("Discord bot ready: {0}#{1}.", currentUser.Username, currentUser.DiscriminatorValue);
+        _readyTask.SetResult();
+        _isReady = true;
     }
     
     private async Task TrySyncInteractions()
