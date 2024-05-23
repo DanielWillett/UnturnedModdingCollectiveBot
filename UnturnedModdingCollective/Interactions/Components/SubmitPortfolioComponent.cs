@@ -81,7 +81,8 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
                                     TimestampTag.FormatFromDateTime(request.UtcTimeVoteExpires.Value, TimestampTagStyles.Relative)
                                  } when the vote closes and the decision is made. You've been locked out of this thread and can no longer see new messages, " +
                                  "although Discord may keep you in the channel until you click out.")
-                .Build());
+                .Build(),
+                ephemeral: true);
 
             // lock thread, remove the user's ability to view the thread
             Task modifyThread = thread.ModifyAsync(properties =>
