@@ -17,10 +17,21 @@ public class LiveConfiguration : IDefaultable
     /// Amount of time that has to go by before someone can re-apply for the same role. Zero implies indefinite.
     /// </summary>
     public TimeSpan TimeBetweenApplications { get; set; }
+
+    /// <summary>
+    /// Number of yes votes (with no votes subtracted) needed to automatically accept an applicant before the vote is over.
+    /// </summary>
+    public int VoteNetAutoAccept { get; set; }
+
+    /// <summary>
+    /// Should the applicant be removed from the thread on submit?
+    /// </summary>
+    public bool RemoveApplicantFromThread { get; set; }
     public void SetDefaults()
     {
-        TimeBetweenApplications = TimeSpan.FromDays(60d);
+        TimeBetweenApplications = TimeSpan.FromDays(30d);
         VoteTime = TimeSpan.FromDays(3d);
         PingTimeBeforeVoteClose = TimeSpan.FromDays(1d);
+        VoteNetAutoAccept = 5;
     }
 }

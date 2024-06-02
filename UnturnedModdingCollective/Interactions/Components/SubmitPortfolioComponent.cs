@@ -74,21 +74,22 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
 
         try
         {
+            bool removeApplicant = _liveConfiguration.Configuraiton.RemoveApplicantFromThread;
             await Context.Interaction.RespondAsync(embed: new EmbedBuilder()
                 .WithColor(Color.Green)
                 .WithTitle("Submitted")
                 .WithDescription($"Your portfolio has been submitted, you should receive a DM {
                                     TimestampTag.FormatFromDateTime(request.UtcTimeVoteExpires.Value, TimestampTagStyles.Relative)
-                                 } when the vote closes and the decision is made. You've been locked out of this thread and can no longer see new messages, " +
-                                 "although Discord may keep you in the channel until you click out.")
+                                 } when the vote closes and the decision is made.{(removeApplicant
+                                     ? " You've been locked out of this thread and can no longer see new messages, " +
+                                       "although Discord may keep you in the channel until you click out."
+                                     : string.Empty)}")
                 .Build(),
                 ephemeral: true);
 
             // lock thread, remove the user's ability to view the thread
             Task modifyThread = thread.ModifyAsync(properties =>
             {
-                properties.Locked = true;
-
                 // set auto-archive duration to be higher than the vote time
                 if (voteTime <= TimeSpan.FromHours(1d))
                     properties.AutoArchiveDuration = ThreadArchiveDuration.OneHour;
@@ -100,7 +101,10 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
                     properties.AutoArchiveDuration = ThreadArchiveDuration.OneWeek;
             });
 
-            await thread.RemoveUserAsync((IGuildUser)Context.User);
+            if (removeApplicant)
+            {
+                await thread.RemoveUserAsync((IGuildUser)Context.User);
+            }
             await modifyThread;
 
             // send the vote poll
@@ -113,7 +117,6 @@ public class SubmitPortfolioComponent : InteractionModuleBase<SocketInteractionC
 
             // update request so the vote expires just after the poll ends instead of just before
             request.UtcTimeVoteExpires = _timeProvider.GetUtcNow().UtcDateTime.Add(voteTime);
-
         }
         finally
         {

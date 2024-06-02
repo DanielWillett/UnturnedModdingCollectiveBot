@@ -51,6 +51,7 @@ public class VoteLifetimeManager : IHostedService, IDisposable
 
     Task IHostedService.StartAsync(CancellationToken token)
     {
+        _discordClient.PollVoteAdded += HandleVoteAdded;
         _ = Task.Run(async () =>
         {
             try
@@ -76,9 +77,9 @@ public class VoteLifetimeManager : IHostedService, IDisposable
 
         return Task.CompletedTask;
     }
-
     async Task IHostedService.StopAsync(CancellationToken token)
     {
+        _discordClient.PollVoteAdded -= HandleVoteAdded;
         _tknSrc.Cancel();
 
         await _pollFinalizeGate.WaitAsync(token);
@@ -93,6 +94,75 @@ public class VoteLifetimeManager : IHostedService, IDisposable
         _dbContextScope.Dispose();
     }
 
+    private Task HandleVoteAdded(Cacheable<IUser, ulong> user, Cacheable<ISocketMessageChannel, IRestMessageChannel, IMessageChannel, ulong> channel, Cacheable<IUserMessage, ulong> message, Cacheable<SocketGuild, RestGuild, IGuild, ulong>? guild, ulong answerId)
+    {
+        if (_liveConfig.Configuraiton.VoteNetAutoAccept <= 0)
+            return Task.CompletedTask;
+
+        _ = Task.Run(async () =>
+        {
+            bool finalize;
+            IUserMessage? pollMessage;
+            ReviewRequestRole? roleRequest;
+            List<IUser> votesForYes, votesForNo;
+
+            await _pollFinalizeGate.WaitAsync();
+            try
+            {
+                pollMessage = await message.DownloadAsync();
+                if (pollMessage == null)
+                    return;
+
+                IMessageChannel? pollChannel = await channel.GetOrDownloadAsync();
+                if (pollChannel is not IThreadChannel)
+                    return;
+
+                roleRequest = await _dbContext.Set<ReviewRequestRole>()
+                    .Include(x => x.Request)
+                    .Where(x => x.PollMessageId == pollMessage.Id)
+                    .FirstOrDefaultAsync();
+
+                if (roleRequest == null)
+                    return;
+
+                (votesForYes, votesForNo) = await GetPollResponsesAsync(pollMessage, roleRequest.Request!.UserId);
+                finalize = votesForYes.Count - votesForNo.Count >= _liveConfig.Configuraiton.VoteNetAutoAccept;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error handling vote add.");
+                return;
+            }
+            finally
+            {
+                _pollFinalizeGate.Release();
+            }
+
+            if (!finalize)
+                return;
+
+            // give them a chance to change their mind.
+            await Task.Delay(TimeSpan.FromMinutes(1d));
+
+            (votesForYes, votesForNo) = await GetPollResponsesAsync(pollMessage, roleRequest.Request!.UserId);
+            
+            finalize = votesForYes.Count - votesForNo.Count >= _liveConfig.Configuraiton.VoteNetAutoAccept;
+            
+            if (finalize)
+            {
+                try
+                {
+                    await FinalizePoll(roleRequest.RequestId, roleRequest.RoleId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error auto-finalizing poll.");
+                }
+            }
+        });
+
+        return Task.CompletedTask;
+    }
     private async Task ErrorPoll(ReviewRequestRole request, CancellationToken token = default)
     {
         request.ClosedUnderError = true;
@@ -201,6 +271,54 @@ public class VoteLifetimeManager : IHostedService, IDisposable
             return await channel.GetMessageAsync(messageId, options: reqOpt) as IUserMessage;
         }
     }
+    private static async Task<(List<IUser> VotesForYes, List<IUser> VotesForNo)> GetPollResponsesAsync(IUserMessage pollMessage, ulong applicantId, CancellationToken token = default)
+    {
+        Poll? nullablePoll = pollMessage.Poll;
+        if (!nullablePoll.HasValue)
+        {
+            return ([ ], [ ]);
+        }
+
+        Poll poll = nullablePoll.Value;
+
+        uint yesId = 1, noId = 2;
+
+        // api docs states to not rely on the order of the answers to get the answer IDs, even if that's how it's implemented right now.
+        // this will double-check the IDs by name
+        foreach (PollAnswer answer in poll.Answers)
+        {
+            string pollMediaText = answer.PollMedia.Text;
+            if (pollMediaText.Equals(PollFactory.PollYesText, StringComparison.Ordinal))
+            {
+                yesId = answer.AnswerId;
+            }
+            else if (pollMediaText.Equals(PollFactory.PollNoText, StringComparison.Ordinal))
+            {
+                noId = answer.AnswerId;
+            }
+        }
+
+        RequestOptions? reqOpt = token.CanBeCanceled ? new RequestOptions { CancelToken = token } : null;
+
+        // get users that voted for each answer
+        ValueTask<List<IUser>> getYesesTask = pollMessage
+            .GetPollAnswerVotersAsync(yesId, options: reqOpt)
+            .Flatten()
+            .ToListAsync(token);
+
+        List<IUser> votesForNo = await pollMessage
+            .GetPollAnswerVotersAsync(noId, options: reqOpt)
+            .Flatten()
+            .ToListAsync(token);
+
+        List<IUser> votesForYes = await getYesesTask;
+
+        // remove applicant in case they somehow voted for themselves
+        votesForYes.RemoveAll(x => x.Id == applicantId);
+        votesForNo.RemoveAll(x => x.Id == applicantId);
+
+        return (votesForYes, votesForNo);
+    }
     private async Task FinalizePollIntl(ReviewRequestRole request, CancellationToken token = default)
     {
         RequestOptions reqOpt = new RequestOptions { CancelToken = token };
@@ -271,37 +389,7 @@ public class VoteLifetimeManager : IHostedService, IDisposable
                 return;
             }
 
-            poll = pollMessage.Poll.Value;
-
-            uint yesId = 1, noId = 2;
-
-            // api docs states to not rely on the order of the answers to get the answer IDs, even if that's how it's implemented right now.
-            // this will double-check the IDs by name
-            foreach (PollAnswer answer in poll.Answers)
-            {
-                string pollMediaText = answer.PollMedia.Text;
-                if (pollMediaText.Equals(PollFactory.PollYesText, StringComparison.Ordinal))
-                {
-                    yesId = answer.AnswerId;
-                }
-                else if (pollMediaText.Equals(PollFactory.PollNoText, StringComparison.Ordinal))
-                {
-                    noId = answer.AnswerId;
-                }
-            }
-
-            // get users that voted for each answer
-            ValueTask<List<IUser>> getYesesTask = pollMessage
-                .GetPollAnswerVotersAsync(yesId, options: reqOpt)
-                .Flatten()
-                .ToListAsync(token);
-
-            List<IUser> votesForNo = await pollMessage
-                .GetPollAnswerVotersAsync(noId, options: reqOpt)
-                .Flatten()
-                .ToListAsync(token);
-
-            List<IUser> votesForYes = await getYesesTask;
+            (List<IUser> votesForYes, List<IUser> votesForNo) = await GetPollResponsesAsync(pollMessage, request.Request!.UserId, token);
 
             _logger.LogDebug($"{request.RoleId} - ({votesForYes.Count}-{votesForNo.Count})");
 

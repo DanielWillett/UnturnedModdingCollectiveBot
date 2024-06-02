@@ -25,6 +25,8 @@ public class ConfigurationCommands : InteractionModuleBase<SocketInteractionCont
         [Choice("Time Between Applications", "time-between-applications")]
         [Choice("Vote Time (fmt: 1d[ 4h 30m])", "vote-time")]
         [Choice("Time Before Vote End for Ping (fmt: 1d[ 4h 30m])", "vote-ping-time")]
+        [Choice("Net Yes Votes Before Acceptance", "vote-net-auto-accept")]
+        [Choice("Remove Applicant From Thread", "remove-applicant")]
         string setting,
         string value
         )
@@ -65,6 +67,44 @@ public class ConfigurationCommands : InteractionModuleBase<SocketInteractionCont
             settingName = "Time Between Applications";
 
             liveConfig.TimeBetweenApplications = ts;
+        }
+        else if (setting.Equals("vote-net-auto-accept", StringComparison.Ordinal))
+        {
+            if (!int.TryParse(value, CultureInfo.InvariantCulture, out int voteNetAutoAccept))
+            {
+                await Context.Interaction.RespondAsync(embed: new EmbedBuilder()
+                    .WithColor(Color.Red)
+                    .WithTitle("Invalid Input.")
+                    .WithDescription($"`{value}` could not be converted to an integer.")
+                    .Build()
+                );
+                return;
+            }
+
+            oldValue = liveConfig.VoteNetAutoAccept.ToString(CultureInfo.InvariantCulture);
+            newValue = voteNetAutoAccept.ToString(CultureInfo.InvariantCulture);
+            settingName = "Net Yes Votes Before Acceptance";
+
+            liveConfig.VoteNetAutoAccept = voteNetAutoAccept;
+        }
+        else if (setting.Equals("remove-applicant", StringComparison.Ordinal))
+        {
+            if (!bool.TryParse(value, out bool removeApplicant))
+            {
+                await Context.Interaction.RespondAsync(embed: new EmbedBuilder()
+                    .WithColor(Color.Red)
+                    .WithTitle("Invalid Input.")
+                    .WithDescription($"`{value}` could not be converted to an integer.")
+                    .Build()
+                );
+                return;
+            }
+
+            oldValue = liveConfig.RemoveApplicantFromThread.ToString(CultureInfo.InvariantCulture);
+            newValue = removeApplicant.ToString(CultureInfo.InvariantCulture);
+            settingName = "Remove Applicant From Thread";
+
+            liveConfig.RemoveApplicantFromThread = removeApplicant;
         }
         else
         {
